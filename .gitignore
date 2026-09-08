@@ -21,9 +21,6 @@ bin
 .project
 .classpath
 
-# Gradle
-.gradle
-
 # Visual Studio Code
 .vscode
 
@@ -43,3 +40,4 @@ package-lock.json
 logs
 jars
 lib
+test-results

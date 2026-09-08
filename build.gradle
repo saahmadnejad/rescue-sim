@@ -37,6 +37,7 @@ dependencies {
 
   testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.1'
   testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.8.1'
 }
 
 repositories {
@@ -65,10 +66,19 @@ sourceSets {
                   'modules/ignition/src',
                   'modules/maps/src',
                   'modules/sample/src',
+                  'modules/telecom/src',
                   'modules/traffic3/src',
                   'modules/oldsims',
                   'modules/resq-fire/src'
                 ]
+    }
+    java {
+      exclude '**/test/**'
+    }
+  }
+  test {
+    java {
+      srcDirs = [ 'modules/telecom/src/test/java' ]
     }
   }
 }
@@ -337,6 +347,23 @@ task traffic3SourceJar(type: Jar, dependsOn: classes) {
   archiveFileName = 'traffic3-sources.jar'
 }
 
+task telecomSourceJar(type: Jar, dependsOn: classes) {
+  archiveClassifier = 'sources'
+  from(sourceSets.main.allSource) {
+    include 'telecom/**'
+  }
+  destinationDirectory = file('jars/sources')
+  archiveFileName = 'telecom-sources.jar'
+}
+
+task telecomJar(type: Jar) {
+  from(sourceSets.main.output) {
+    include 'telecom/**'
+  }
+  destinationDirectory = file('jars')
+  archiveFileName = 'telecom.jar'
+}
+
 task traffic3Jar(type: Jar) {
   from(sourceSets.main.output) {
     include 'traffic3/**'
@@ -351,7 +378,8 @@ task sourcesJar(type: GradleBuild) {
   tasks = [ 'clearSourceJar', 'collapseSourceJar', 'gis2SourceJar',
             'ignitionSourceJar', 'kernelSourceJar', 'mapsSourceJar',
             'miscSourceJar', 'rescuecore2SourceJar', 'resqFireSourceJar',
-            'sampleSourceJar', 'standardSourceJar', 'traffic3SourceJar'
+            'sampleSourceJar', 'standardSourceJar', 'telecomSourceJar',
+            'traffic3SourceJar'
           ]
 }
 
@@ -359,7 +387,7 @@ task sourcesJar(type: GradleBuild) {
 task completeBuild(type: GradleBuild) {
   tasks = [ 'clean', 'clearJar', 'collapseJar', 'gis2Jar', 'ignitionJar',
             'kernelJar', 'mapsJar', 'miscJar', 'rescuecore2Jar', 'resqFireJar',
-            'sampleJar', 'standardJar', 'traffic3Jar', 'sourcesJar',
+            'sampleJar', 'standardJar', 'telecomJar', 'traffic3Jar', 'sourcesJar',
             'exportLibs'
           ]
 }

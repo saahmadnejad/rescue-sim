@@ -5,7 +5,8 @@ Fork of [rcrs-server](https://github.com/roborescue/rcrs-server) (BSD-3-Clause,
 scenario** for the RoboCup Rescue Simulation league, to encourage telecom
 industry support for the league.
 
-**Status**: scaffold. Telecom module not yet implemented — see
+**Status**: T1-T2 implemented (telecom module: BTS entity + radial coverage,
+unit-tested). T3+ not yet implemented — see
 [ROADMAP](#roadmap).
 
 ## What this adds (planned)
@@ -27,7 +28,8 @@ industry support for the league.
    (site outages, alarms, coverage) over HTTP/events to an external
    AI-native OSS (see telecom-oss repo) — the OSS dispatches restoration
    work orders back. Contract is public TMF Open APIs only
-   (TMF638 inventory, TMF621 trouble ticket, TMF634 event notification),
+   (TMF639 resource inventory, TMF642 alarm management, TMF697 work orders;
+   events per the TMF630 notification pattern),
    no code coupling.
 
 ## Design constraints
@@ -39,8 +41,19 @@ industry support for the league.
 
 ## Roadmap
 
-- [ ] T1: `modules/telecom` module + BTS entity URNs (config-gated)
-- [ ] T2: Coverage computation (simple radial → path-loss later)
+- [x] T1: `modules/telecom` module + BTS entity URNs (config-gated).
+  BTS extends `AbstractEntity` with its own URN space
+  (`urn:rescuecore2.telecom:entity:bts`, id prefix `0x2100`) rather than
+  `StandardEntity` — adding to `StandardEntityURN` would require editing
+  `modules/standard`, violating the upstream-mergeable constraint. Telecom
+  entities live module-side, not in the kernel `StandardWorldModel`;
+  registration of `TelecomEntityFactory`/`TelecomPropertyFactory` happens
+  automatically via jar deep-inspection (`jars/telecom.jar`), so classic
+  scenarios without telecom behave identically (nothing registers).
+- [x] T2: Coverage computation (simple radial → path-loss later).
+  `telecom.CoverageModel`: binary radial coverage, BTS serves iff
+  operational AND powered AND backhaul ≠ NONE; population-covered-%
+  (FCC DIR style) over civilians. Unit-tested (`gradlew test`).
 - [ ] T3: Disaster damage model (Maria-calibrated curves)
 - [ ] T4: Telecom Restoration Brigade agent + COW/COLT actions
 - [ ] T5: Coverage scoring function
