@@ -23,6 +23,8 @@ public final class TelecomEntityFactory extends AbstractEntityFactory<TelecomEnt
     switch (urn) {
       case BTS:
         return new BTS(id);
+      case COW:
+        return new COW(id);
       default:
         throw new IllegalArgumentException("Unrecognised telecom entity urn: " + urn);
     }

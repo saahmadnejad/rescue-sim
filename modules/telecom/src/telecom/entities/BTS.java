@@ -30,13 +30,26 @@ public class BTS extends AbstractEntity {
   private IntProperty backhaul;
   private IntProperty fuelHours;
 
+  private final TelecomEntityURN entityType;
+
   /**
    * Construct a BTS with entirely undefined property values.
    *
    * @param id The ID of this entity.
    */
   public BTS(EntityID id) {
+    this(id, TelecomEntityURN.BTS);
+  }
+
+  /**
+   * Construct a typed BTS (e.g. a COW) with undefined property values.
+   *
+   * @param id  The ID of this entity.
+   * @param type The entity URN (BTS or COW).
+   */
+  protected BTS(EntityID id, TelecomEntityURN type) {
     super(id);
+    this.entityType = type;
     x = new IntProperty(TelecomPropertyURN.X);
     y = new IntProperty(TelecomPropertyURN.Y);
     coverageRadius = new IntProperty(TelecomPropertyURN.COVERAGE_RADIUS);
@@ -54,6 +67,7 @@ public class BTS extends AbstractEntity {
    */
   public BTS(BTS other) {
     super(other.getID());
+    this.entityType = other.entityType;
     x = new IntProperty(other.x);
     y = new IntProperty(other.y);
     coverageRadius = new IntProperty(other.coverageRadius);
@@ -71,7 +85,16 @@ public class BTS extends AbstractEntity {
 
   @Override
   public int getURN() {
-    return TelecomEntityURN.BTS.getURNId();
+    return entityType.getURNId();
+  }
+
+  /**
+   * The telecom entity type of this object (BTS or COW).
+   *
+   * @return The entity URN.
+   */
+  public TelecomEntityURN getTelecomURN() {
+    return entityType;
   }
 
   @Override
@@ -338,6 +361,7 @@ public class BTS extends AbstractEntity {
     json.put(TelecomPropertyURN.POWER_MODE.toString(), isPowerModeDefined() ? getPowerMode().getCode() : JSONObject.NULL);
     json.put(TelecomPropertyURN.BACKHAUL.toString(), isBackhaulDefined() ? getBackhaul().getCode() : JSONObject.NULL);
     json.put(TelecomPropertyURN.FUEL_HOURS.toString(), isFuelHoursDefined() ? getFuelHours() : JSONObject.NULL);
+    json.put("TelecomURN", entityType.toString());
     return json;
   }
 

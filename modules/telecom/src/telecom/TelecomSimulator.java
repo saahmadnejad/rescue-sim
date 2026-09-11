@@ -1,16 +1,25 @@
 package telecom;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 import rescuecore2.config.Config;
 import rescuecore2.log.Logger;
 import rescuecore2.messages.control.KSCommands;
 import rescuecore2.messages.control.KSUpdate;
+import rescuecore2.misc.Pair;
 import rescuecore2.standard.components.StandardSimulator;
+import rescuecore2.standard.entities.Civilian;
+import rescuecore2.standard.entities.StandardEntityURN;
 import rescuecore2.worldmodel.ChangeSet;
 import rescuecore2.worldmodel.EntityID;
+import telecom.brigade.RestorationBrigade;
+import telecom.brigade.RestorationPolicy;
+import telecom.brigade.RuleBasedRestorationPolicy;
+import telecom.brigade.WorkOrder;
 import telecom.damage.DamageModel;
 import telecom.entities.BTS;
 import telecom.entities.BTS.Backhaul;
@@ -40,11 +49,15 @@ public class TelecomSimulator extends StandardSimulator {
   /** Config keys. */
   public static final String BTS_LIST_KEY = "telecom.bts.list";
   public static final String BTS_GRID_KEY = "telecom.bts.grid";
+  public static final String POLICY_ENABLED_KEY = "telecom.policy.enabled";
+  public static final String POLICY_MAX_ORDERS_KEY = "telecom.policy.max-orders-per-tick";
 
   private static final String LIST_SEPARATOR = ";";
   private static final String FIELD_SEPARATOR = ",";
 
   private DamageModel damageModel;
+  private RestorationPolicy policy;
+  private RestorationBrigade brigade;
   private Random random;
   private boolean damagedApplied;
 
@@ -56,6 +69,17 @@ public class TelecomSimulator extends StandardSimulator {
     damagedApplied = false;
     List<BTS> btsList = loadBtsFromConfig();
     TelecomRegistry.getInstance().setAll(btsList);
+    boolean policyEnabled = config.getBooleanValue(POLICY_ENABLED_KEY, false);
+    if (policyEnabled) {
+      brigade = new RestorationBrigade(config, TelecomRegistry.getInstance());
+      int maxOrders = config.getIntValue(POLICY_MAX_ORDERS_KEY, 2);
+      policy = new RuleBasedRestorationPolicy(maxOrders);
+      Logger.info("TelecomSimulator: rule-based restoration policy active (max "
+          + maxOrders + " orders/tick)");
+    } else {
+      brigade = new RestorationBrigade(config, TelecomRegistry.getInstance());
+      Logger.info("TelecomSimulator: brigade idle (policy disabled — external orders only)");
+    }
     Logger.info("TelecomSimulator connected: " + btsList.size()
         + " BTSs, damage scenario=" + damageModelInitialisedScenario());
   }
@@ -75,6 +99,27 @@ public class TelecomSimulator extends StandardSimulator {
           + damageModelInitialisedScenario() + ")");
     }
     damageModel.step(TelecomRegistry.getInstance().getAll());
+    if (policy != null) {
+      for (WorkOrder order : policy.plan(TelecomRegistry.getInstance().getAll(), civilianLocations())) {
+        brigade.submit(order);
+      }
+    }
+    brigade.tick();
+  }
+
+  private Map<EntityID, Pair<Integer, Integer>> civilianLocations() {
+    Map<EntityID, Pair<Integer, Integer>> result = new HashMap<>();
+    for (StandardEntityURN urn : new StandardEntityURN[] { StandardEntityURN.CIVILIAN }) {
+      for (rescuecore2.standard.entities.StandardEntity e : model.getEntitiesOfType(urn)) {
+        if (e instanceof Civilian) {
+          Pair<Integer, Integer> loc = ((Civilian) e).getLocation(model);
+          if (loc != null) {
+            result.put(e.getID(), loc);
+          }
+        }
+      }
+    }
+    return result;
   }
 
   @Override

@@ -12,7 +12,9 @@ import rescuecore2.URN;
  */
 public enum TelecomEntityURN implements URN {
   /** Base Transceiver Station entity. */
-  BTS(ENTITY_URN_PREFIX | 1, ENTITY_URN_PREFIX_STR + "bts");
+  BTS(ENTITY_URN_PREFIX | 1, ENTITY_URN_PREFIX_STR + "bts"),
+  /** Cell-on-wheels: deployable BTS (restoration asset). */
+  COW(ENTITY_URN_PREFIX | 2, ENTITY_URN_PREFIX_STR + "cow");
 
   private int urnId;
   private String urnStr;
