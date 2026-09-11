@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Gradle wrapper distribution
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/wrapper/dists
+          key: gradle-wrapper-${{ runner.os }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-wrapper-${{ runner.os }}-
+
+      - name: Run tests
+        run: ./gradlew test --console=plain
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: build/test-results/

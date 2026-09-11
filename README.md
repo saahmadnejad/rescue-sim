@@ -1,71 +1,125 @@
 # rescue-sim — Telecom Disaster Extension for RoboCup Rescue Simulation
 
-Fork of [rcrs-server](https://github.com/roborescue/rcrs-server) (BSD-3-Clause,
-`upstream` remote tracks origin repo). Goal: a realistic **telecom disaster
-scenario** for the RoboCup Rescue Simulation league, to encourage telecom
-industry support for the league.
+Telecom disaster scenarios for the [RoboCup Rescue Simulation (RCRS)]
+server: cell-site (BTS) infrastructure, hurricane-calibrated damage
+models, and — the defining feature — **agent communications routed
+through the cellular network: when BTSs die, comms die for uncovered
+agents and civilians.**
 
-**Status**: T1-T2 implemented (telecom module: BTS entity + radial coverage,
-unit-tested). T3+ not yet implemented — see
-[ROADMAP](#roadmap).
+Public artifact for the papers portfolio (papers 3/4: rescue coordination
+and AI-native telecom OSS). Sibling consumer: `telecom-oss` (AI-native
+OSS speaking TMF Open APIs, drives restoration work orders back into the
+sim at v1.1).
 
-## What this adds (planned)
+## Status
 
-1. **BTS entities** (cell sites) on the world model: position, coverage
-   radius, state (`operational | damaged | destroyed`), power dependency
-   (grid | generator), backhaul dependency (fiber route | microwave | satellite).
-2. **Telecom disaster model**: hurricane/earthquake damage curves calibrated
-   to real cases (Hurricane Maria 2017: 95% of network down day 1, 49% of
-   towers operating at day 30 — see papers/paper3/paper4 docs for sources).
-3. **New agent type — Telecom Restoration Brigade**: repairs BTS, deploys
-   COW (cell-on-wheels, ~1 day) / COLT (~3 h) units, refuels generators.
-4. **Coverage-aware civilians**: victims in uncovered areas are harder to
-   locate (search radius / rescue time penalty), modeling real emergency
-   dispatch dependence on network coverage.
-5. **Coverage scoring**: population-covered-% over time alongside classic
-   RCRS scores (pluggable `ScoreFunction`).
-6. **Event stream for external OSS**: sim emits telecom telemetry
-   (site outages, alarms, coverage) over HTTP/events to an external
-   AI-native OSS (see telecom-oss repo) — the OSS dispatches restoration
-   work orders back. Contract is public TMF Open APIs only
-   (TMF639 resource inventory, TMF642 alarm management, TMF697 work orders;
-   events per the TMF630 notification pattern),
-   no code coupling.
+T1-T3 + core comms integration implemented (`modules/telecom`,
+unit-tested, headless-run verified): BTS entities, radial coverage v0,
+Maria/Sandy-calibrated damage model, BTS-gated communication model.
+Roadmap below for the rest. **Design decisions are locked in
+[DECISIONS.md](DECISIONS.md) — read it before contributing.**
 
-## Design constraints
+## Relationship to upstream
 
-- **Upstream-mergeable**: telecom code lives in its own gradle module
-  (`modules/telecom`), never modifies standard/ in place; config-gated so
-  classic scenarios behave identically with telecom off.
-- **No coupling to external repos**: all interaction via documented APIs.
+This is a copy of [roborescue/rcrs-server](https://github.com/roborescue/rcrs-server)
+(BSD-3-Clause) at upstream HEAD (root commit `9deec95`), extended by the
+`modules/telecom` module. It is **not** a GitHub fork of upstream (no
+shared git ancestry): upstream changes are merged by tree-diff porting.
+All upstream code is untouched except `build.gradle` (wired the telecom
+source dir + jar tasks, mirroring how every other module is wired).
+
+**Extension rules** (see DECISIONS.md): telecom code lives only in
+`modules/telecom`; `modules/standard`, `modules/kernel`,
+`modules/rescuecore2` are never edited in place; classic scenarios
+without telecom config keys behave identically to upstream.
+
+## What the telecom module adds
+
+1. **BTS entities** (cell sites): position, coverage radius, operational
+   state (operational / damaged / destroyed), power mode (grid /
+   generator / none) with generator fuel hours, backhaul (fiber /
+   microwave / satellite / none). BTSs serve coverage iff operational
+   AND powered AND backhaul live. BTSs live module-side (own URN space,
+   `urn:rescuecore2.telecom:*`, ids 0x2100/0x2200) — deliberately not in
+   the standard RCRS world model, which keeps `modules/standard`
+   untouched (DECISIONS.md ADR-001).
+2. **Disaster damage model** calibrated to public data
+   (papers/paper4-telecom-oss/grounding-facts.md): Hurricane Maria 2017 —
+   95% of PR's cell network down day 1 (mix: ~25% tower collapse, ~60%
+   backhaul cuts, ~15% grid power loss); Hurricane Sandy 2012 — ~25%
+   out, power-dominated. Generators run on a fuel countdown (Maria:
+   fuel logistics was the binding constraint).
+3. **BTS-gated comms**: a drop-in communication model that delegates to
+   the standard channel model, then filters what each agent hears by
+   BTS coverage. Uncovered agents — and uncovered civilians — hear
+   nothing. This is the coverage-aware-civilian effect: people outside
+   coverage cannot call for help.
+4. **Telecom Restoration Brigade** (roadmap T4): COW/COLT deployment,
+   repairs, refuelling, driven by a pluggable restoration policy; the
+   rule-based policy mirrors what Maria/Sandy/9-11 operators actually
+   did (government/911 sites first, dense population second, remote
+   last) and serves as the classical baseline for agent-based (LLM)
+   policies.
+5. **Coverage scoring** (roadmap T5): population-covered-% (FCC DIR
+   style) as an RCRS score component.
+6. **Telemetry / work-order endpoint** (roadmap T6): plain REST out of
+   the sim, work orders in — TMF Open API shaped at v1.1.
+
+## Quick start
+
+Requires Java 21 and the Gradle wrapper (first run downloads ~130MB).
+
+```bash
+./gradlew completeBuild          # builds all module jars into jars/ + libs into lib/
+./gradlew test                   # telecom module unit tests
+
+# Headless telecom scenario on the test map (300 timesteps, Maria curve)
+CP="$(printf '%s:' jars/*.jar)$(printf '%s:' lib/*.jar)"
+java -Xmx512m -Dlog4j.log.dir=/tmp/telecom \
+  -cp "$CP" kernel.StartKernel \
+  -c maps/test/config/kernel-telecom.cfg \
+  --gis.map.dir=maps/test/map \
+  --kernel.logname=/tmp/telecom/rescue.log.7z \
+  --loadabletypes.inspect.dir=jars \
+  --nogui --nomenu --autorun
+```
+
+Watch the log for `TelecomSimulator connected: N BTSs` and
+`applied initial damage`. Without `--loadabletypes.inspect.dir=jars`
+and with the wrong map dir the kernel will fail to find GIS/jars — those
+flags matter when launching from the repo root (upstream `start.sh`
+assumes cwd `scripts/`).
+
+Classic upstream scenarios run unchanged: `bash scripts/start.sh -m
+maps/test/map -c maps/test/config -g` (see `scripts/functions.sh`).
+
+## Telecom config keys (opt-in)
+
+| Key | Meaning |
+|---|---|
+| `kernel.simulators.auto +: telecom.TelecomSimulator` | activates the telecom sim (BTS load + damage) |
+| `kernel.communication: telecom.comms.TelecomCommunicationModel` | BTS-gated comms (delegates channel model) |
+| `telecom.bts.list: x,y,radius;...` | explicit BTS placement (takes precedence) |
+| `telecom.bts.grid: cols,rows,dx,dy,x0,y0,radius` | seeded grid placement |
+| `telecom.damage.scenario: maria\|sandy\|none` | day-1 damage curve |
+| `telecom.damage.steps-per-day: N` | kernel steps per simulated day (1440 = 1-min steps) |
+| `telecom.damage.generator-hours: H` | generator fuel tank (hours) |
+| `telecom.comms.bts-required: true\|false` | hearing requires BTS coverage (false = passthrough) |
+
+See `maps/test/config/kernel-telecom.cfg` for a working example.
 
 ## Roadmap
 
-- [x] T1: `modules/telecom` module + BTS entity URNs (config-gated).
-  BTS extends `AbstractEntity` with its own URN space
-  (`urn:rescuecore2.telecom:entity:bts`, id prefix `0x2100`) rather than
-  `StandardEntity` — adding to `StandardEntityURN` would require editing
-  `modules/standard`, violating the upstream-mergeable constraint. Telecom
-  entities live module-side, not in the kernel `StandardWorldModel`;
-  registration of `TelecomEntityFactory`/`TelecomPropertyFactory` happens
-  automatically via jar deep-inspection (`jars/telecom.jar`), so classic
-  scenarios without telecom behave identically (nothing registers).
-- [x] T2: Coverage computation (simple radial → path-loss later).
-  `telecom.CoverageModel`: binary radial coverage, BTS serves iff
-  operational AND powered AND backhaul ≠ NONE; population-covered-%
-  (FCC DIR style) over civilians. Unit-tested (`gradlew test`).
-- [ ] T3: Disaster damage model (Maria-calibrated curves)
-- [ ] T4: Telecom Restoration Brigade agent + COW/COLT actions
-- [ ] T5: Coverage scoring function
-- [ ] T6: Telemetry emitter + work-order ingestion (TMF API contract)
-- [ ] T7: Map extension (BTS layer on existing RCRS maps: test → kobe → berlin)
+- [x] T1: telecom module + BTS entities (config-gated, upstream-mergeable)
+- [x] T2: radial coverage model (v0; path-loss later)
+- [x] T3: disaster damage model (Maria/Sandy-calibrated)
+- [x] Comms-through-BTS integration (kernel pluggable communication model)
+- [ ] T4: Telecom Restoration Brigade + COW/COLT actions + restoration policy
+- [ ] T5: coverage scoring function
+- [ ] T6: telemetry emitter + work-order ingestion (plain REST; TMF-shaped at v1.1)
+- [ ] T7: BTS layer on real maps (test → kobe → berlin)
 
 ## License
 
-BSD-3-Clause (inherited from rcrs-server, LICENSE file at root).
-
-## Related
-
-- `telecom-oss` repo: AI-native OSS consuming this sim's telemetry
-- `papers/paper3-rescue` + `paper4-telecom-oss`: research outputs
-- jade platform (private fork): agent team infrastructure for OSS agents
+BSD-3-Clause (inherited from rcrs-server, LICENSE file at root; covers
+the whole tree including `modules/telecom`).
