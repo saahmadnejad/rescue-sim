@@ -27,6 +27,7 @@ public final class TelecomPropertyFactory extends AbstractPropertyFactory<Teleco
       case STATE:
       case POWER_MODE:
       case BACKHAUL:
+      case FUEL_HOURS:
         return new IntProperty(urn);
       default:
         throw new IllegalArgumentException("Unrecognised telecom property urn: " + urn);

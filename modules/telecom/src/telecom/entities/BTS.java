@@ -28,6 +28,7 @@ public class BTS extends AbstractEntity {
   private IntProperty state;
   private IntProperty powerMode;
   private IntProperty backhaul;
+  private IntProperty fuelHours;
 
   /**
    * Construct a BTS with entirely undefined property values.
@@ -42,7 +43,8 @@ public class BTS extends AbstractEntity {
     state = new IntProperty(TelecomPropertyURN.STATE);
     powerMode = new IntProperty(TelecomPropertyURN.POWER_MODE);
     backhaul = new IntProperty(TelecomPropertyURN.BACKHAUL);
-    registerProperties(x, y, coverageRadius, state, powerMode, backhaul);
+    fuelHours = new IntProperty(TelecomPropertyURN.FUEL_HOURS);
+    registerProperties(x, y, coverageRadius, state, powerMode, backhaul, fuelHours);
   }
 
   /**
@@ -58,7 +60,8 @@ public class BTS extends AbstractEntity {
     state = new IntProperty(other.state);
     powerMode = new IntProperty(other.powerMode);
     backhaul = new IntProperty(other.backhaul);
-    registerProperties(x, y, coverageRadius, state, powerMode, backhaul);
+    fuelHours = new IntProperty(other.fuelHours);
+    registerProperties(x, y, coverageRadius, state, powerMode, backhaul, fuelHours);
   }
 
   @Override
@@ -97,6 +100,8 @@ public class BTS extends AbstractEntity {
         return powerMode;
       case BACKHAUL:
         return backhaul;
+      case FUEL_HOURS:
+        return fuelHours;
       default:
         return super.getProperty(urn);
     }
@@ -285,6 +290,22 @@ public class BTS extends AbstractEntity {
     return backhaul.isDefined();
   }
 
+  public IntProperty getFuelHoursProperty() {
+    return fuelHours;
+  }
+
+  public int getFuelHours() {
+    return fuelHours.getValue();
+  }
+
+  public void setFuelHours(int hours) {
+    this.fuelHours.setValue(hours);
+  }
+
+  public boolean isFuelHoursDefined() {
+    return fuelHours.isDefined();
+  }
+
   /**
    * Whether this BTS currently provides coverage. A BTS covers only while
    * operational AND powered AND having a live backhaul, mirroring the Maria/
@@ -316,6 +337,7 @@ public class BTS extends AbstractEntity {
     json.put(TelecomPropertyURN.STATE.toString(), isStateDefined() ? getState().getCode() : JSONObject.NULL);
     json.put(TelecomPropertyURN.POWER_MODE.toString(), isPowerModeDefined() ? getPowerMode().getCode() : JSONObject.NULL);
     json.put(TelecomPropertyURN.BACKHAUL.toString(), isBackhaulDefined() ? getBackhaul().getCode() : JSONObject.NULL);
+    json.put(TelecomPropertyURN.FUEL_HOURS.toString(), isFuelHoursDefined() ? getFuelHours() : JSONObject.NULL);
     return json;
   }
 

@@ -22,7 +22,9 @@ public enum TelecomPropertyURN implements URN {
   /** Power mode property: GRID(0), GENERATOR(1), NONE(2). */
   POWER_MODE(PROPERTY_URN_PREFIX | 5, PROPERTY_URN_PREFIX_STR + "powermode"),
   /** Backhaul type property: FIBER(0), MICROWAVE(1), SATELLITE(2), NONE(3). */
-  BACKHAUL(PROPERTY_URN_PREFIX | 6, PROPERTY_URN_PREFIX_STR + "backhaul");
+  BACKHAUL(PROPERTY_URN_PREFIX | 6, PROPERTY_URN_PREFIX_STR + "backhaul"),
+  /** Generator fuel remaining (hours). */
+  FUEL_HOURS(PROPERTY_URN_PREFIX | 7, PROPERTY_URN_PREFIX_STR + "fuelhours");
 
   private int urnId;
   private String urnStr;
