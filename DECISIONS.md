@@ -88,27 +88,23 @@ registry fresh each timestep.
 
 ## Milestones (build order; M-numbers stable identifiers)
 
-- **M1 T3 damage** [next]: TelecomRegistry, TelecomSimulator (config →
-  BTSs), DamageModel (maria/sandy), kernel-telecom.cfg, unit tests.
-- **M2 comms integration**: TelecomCommunicationModel (delegate
-  ChannelCommunicationModel — composition, avoids private-field risk),
-  hearing filter via CoverageModel + registry, flag
-  `telecom.comms.bts-required`, kernel-telecom.cfg wiring, tests.
-  EXIT DEMO: headless test-map run — damage → coverage drop → comms
-  vanish; (later M4: work order → COW → comms return).
-- **M3 repo hygiene**: (fork-replay closed by Q1) — CI workflow, README
-  (upstream relationship, architecture, config table), AGENTS.md for
-  this repo referencing this file.
-- **M4 T4 brigade**: RestorationBrigade (COW ~1day / COLT ~3h / repair
-  + fuel logistics, times from grounding-facts), COW entity via
-  TelecomEntityURN.COW (module-internal), RestorationPolicy +
-  RuleBasedRestorationPolicy (Q12), work-order ingestion minimal REST.
-- **M5 T5 scoring**: TelecomScoreFunction + PopulationCoverageScoreFunction,
-  score.cfg wiring, tests.
-- **M6 minimal T6**: TelemetryServer (JDK HttpServer, zero new deps):
-  GET /telecom/sites|coverage|alarms, POST /telecom/workorders →
-  registry/brigade. Config `telecom.http.port: 0` disables (gate).
-  v1.0 released here. → v1.1 TMF-shape (blocked on telecom-oss O1).
+- **M1 T3 damage** [DONE 5be3286]: TelecomRegistry, TelecomSimulator
+  (config → BTSs), DamageModel (maria/sandy), kernel-telecom.cfg.
+- **M2 comms integration** [DONE 5be3286]: TelecomCommunicationModel,
+  hearing filter, `telecom.comms.bts-required`; headless exit-demo green.
+- **M3 repo hygiene** [DONE 090380f]: CI workflow, README, AGENTS.md.
+  (Fork-replay closed by Q1 — repo already public as a copy.)
+- **M4 T4 brigade** [DONE c9abd0b]: COW entity (TelecomEntityURN.COW),
+  WorkOrder, RestorationPolicy + RuleBasedRestorationPolicy, brigade
+  mechanics (stock + setup countdowns), policy config-gate
+  (telecom.policy.enabled, default off).
+- **M5 T5 scoring** [DONE 6f458b8]: PopulationCoverageScoreFunction +
+  TelecomScoreFunction (RSL21+coverage composite, configurable weights),
+  wired via score.function.
+- **M6 minimal T6** [DONE 6f458b8]: TelemetryServer — GET
+  /telecom/sites|coverage|alarms, POST /telecom/workorders → brigade;
+  telecom.http.port gate (0=off). **v1.0 released here (tag v1.0).**
+  → v1.1 TMF-shape (blocked on telecom-oss O1).
 
 ## Verified plugin seams (file:line, commit b5d8ff3 baseline)
 

@@ -13,10 +13,13 @@ sim at v1.1).
 
 ## Status
 
-T1-T3 + core comms integration implemented (`modules/telecom`,
-unit-tested, headless-run verified): BTS entities, radial coverage v0,
-Maria/Sandy-calibrated damage model, BTS-gated communication model.
-Roadmap below for the rest. **Design decisions are locked in
+**v1.0 released (tag `v1.0`).** Telecom disaster module implemented
+(`modules/telecom`, 41 unit tests green, headless closed-loop verified):
+BTS entities, radial coverage v0, Maria/Sandy-calibrated damage model,
+BTS-gated communication model, restoration brigade (COW/repair/refuel)
+with the rule-based classical policy, population-coverage scoring, and a
+plain-JSON REST telemetry/work-order endpoint. v1.1 reshapes the REST
+contract to TMF Open APIs. **Design decisions are locked in
 [DECISIONS.md](DECISIONS.md) — read it before contributing.**
 
 ## Relationship to upstream
@@ -99,12 +102,21 @@ maps/test/map -c maps/test/config -g` (see `scripts/functions.sh`).
 |---|---|
 | `kernel.simulators.auto +: telecom.TelecomSimulator` | activates the telecom sim (BTS load + damage) |
 | `kernel.communication: telecom.comms.TelecomCommunicationModel` | BTS-gated comms (delegates channel model) |
+| `score.function: telecom.score.TelecomScoreFunction` | RSL21 + population-coverage% composite scoring |
 | `telecom.bts.list: x,y,radius;...` | explicit BTS placement (takes precedence) |
 | `telecom.bts.grid: cols,rows,dx,dy,x0,y0,radius` | seeded grid placement |
 | `telecom.damage.scenario: maria\|sandy\|none` | day-1 damage curve |
 | `telecom.damage.steps-per-day: N` | kernel steps per simulated day (1440 = 1-min steps) |
 | `telecom.damage.generator-hours: H` | generator fuel tank (hours) |
 | `telecom.comms.bts-required: true\|false` | hearing requires BTS coverage (false = passthrough) |
+| `telecom.policy.enabled: true\|false` | rule-based restoration policy (default off; external orders otherwise) |
+| `telecom.policy.max-orders-per-tick: N` | planning bound per tick |
+| `telecom.brigade.cow-stock: N` | COW inventory |
+| `telecom.brigade.cow-setup-steps: N` | COW deployment time (default 1440 ≈ 1 day) |
+| `telecom.brigade.repair-steps: N` | repair time (default 4320 ≈ 3 days) |
+| `telecom.brigade.refuel-steps: N` | refuel time (default 720 ≈ 12 h) |
+| `telecom.brigade.refuel-hours: H` | tank refill amount (default 72 h) |
+| `telecom.http.port: P` | REST telemetry port (0 = off, default); `GET /telecom/sites\|coverage\|alarms`, `POST /telecom/workorders` |
 
 See `maps/test/config/kernel-telecom.cfg` for a working example.
 
@@ -114,9 +126,10 @@ See `maps/test/config/kernel-telecom.cfg` for a working example.
 - [x] T2: radial coverage model (v0; path-loss later)
 - [x] T3: disaster damage model (Maria/Sandy-calibrated)
 - [x] Comms-through-BTS integration (kernel pluggable communication model)
-- [ ] T4: Telecom Restoration Brigade + COW/COLT actions + restoration policy
-- [ ] T5: coverage scoring function
-- [ ] T6: telemetry emitter + work-order ingestion (plain REST; TMF-shaped at v1.1)
+- [x] T4: Telecom Restoration Brigade + COW actions + restoration policy
+- [x] T5: coverage scoring function
+- [x] T6 (v1.0): telemetry emitter + work-order ingestion (plain REST)
+- [ ] T6 (v1.1): TMF-shaped contract (TMF639/642/697 + TMF630 events) — with telecom-oss
 - [ ] T7: BTS layer on real maps (test → kobe → berlin)
 
 ## License
