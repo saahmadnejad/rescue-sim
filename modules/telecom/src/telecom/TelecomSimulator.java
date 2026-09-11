@@ -25,6 +25,7 @@ import telecom.entities.BTS;
 import telecom.entities.BTS.Backhaul;
 import telecom.entities.BTS.PowerMode;
 import telecom.entities.BTS.State;
+import telecom.io.TelemetryServer;
 
 /**
  * Kernel-side telecom simulator (T3). Loads BTSs from config into the
@@ -58,6 +59,7 @@ public class TelecomSimulator extends StandardSimulator {
   private DamageModel damageModel;
   private RestorationPolicy policy;
   private RestorationBrigade brigade;
+  private TelemetryServer telemetry;
   private Random random;
   private boolean damagedApplied;
 
@@ -80,6 +82,9 @@ public class TelecomSimulator extends StandardSimulator {
       brigade = new RestorationBrigade(config, TelecomRegistry.getInstance());
       Logger.info("TelecomSimulator: brigade idle (policy disabled — external orders only)");
     }
+    telemetry = new TelemetryServer(TelecomRegistry.getInstance(), brigade);
+    telemetry.setWorldSupplier(() -> model);
+    telemetry.start(config);
     Logger.info("TelecomSimulator connected: " + btsList.size()
         + " BTSs, damage scenario=" + damageModelInitialisedScenario());
   }
@@ -125,6 +130,14 @@ public class TelecomSimulator extends StandardSimulator {
   @Override
   protected void handleUpdate(KSUpdate u) {
     super.handleUpdate(u);
+  }
+
+  @Override
+  public void shutdown() {
+    if (telemetry != null) {
+      telemetry.stop();
+    }
+    super.shutdown();
   }
 
   private List<BTS> loadBtsFromConfig() {
