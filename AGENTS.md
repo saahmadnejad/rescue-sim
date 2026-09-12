@@ -60,8 +60,9 @@ repo root; upstream scripts assume cwd `scripts/`.)
   the numbers when cited in docs.
 - Commits: `feat(telecom):`, `fix(telecom):`, `docs:` prefixes; keep
   build green (`./gradlew test`) before pushing.
-- Upstream sync: fetch `upstream` (roborescue/rcrs-server), tree-diff,
-  port manually (repo is a copy, not a git fork — DECISIONS.md ADR-003).
+- Upstream sync: `git fetch upstream && git merge upstream/master`
+  (repo is a real fork of roborescue/rcrs-server; default branch `main`,
+  upstream uses `master`).
 
 ## Roadmap / status
 

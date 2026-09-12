@@ -49,7 +49,7 @@ https://github.com/saahmadnejad/rescue-sim. Drives papers 3/4
 
 | # | Decision | Detail |
 |---|---|---|
-| Q1 | True GitHub fork | Squat repo (no shared git ancestry) was public 2026-09-11 (user action, ahead of plan). Fork-replay option CLOSED — accept squat repo; upstream sync via manual tree-diff (fetch upstream, diff trees, port). Record: root commit `9deec95` = full rcrs-server tree @ upstream HEAD (BSD-3), then `949a669` README, `b5d8ff3` T1-T2 telecom. |
+| Q1 | True GitHub fork | DONE 2026-09-12: repo is now a real fork of roborescue/rcrs-server (renamed via `gh repo fork` + rename; old squat history archived at `rescue-sim-archive`, kept as backup, may delete later). All 7 commits rebased onto upstream `master` (21ea6e33) — only conflict was `.gitignore` (merged upstream's IDE/gradle entries with our build-artifact entries). Commit hashes changed: old b5d8ff3/5be3286/090380f/c9abd0b/6f458b8/9433ebc → new 5c3c167/dd2e925/69b9e6c/91e2967/aba81d2/36eaf66; tag v1.0 re-created on aba81d25-era history. Upstream sync now = normal `git fetch upstream && git merge upstream/master` (was: manual tree-diff). Root-commit claim "@ upstream HEAD" was imprecise — the squashed tree matched NO upstream commit exactly (verified by full-history tree scan); rebase had zero semantic conflicts beyond .gitignore. |
 | Q2 | Publish gate passed | Repo already public (see Q1). Push only green-`test` commits from now on. |
 | Q3 | v1.0 scope | T3-T5 + minimal REST T6 (above). No TMF in v1.0. |
 | Q4 | Comms-through-BTS | The defining feature. Implemented as pluggable communication model; see M2 below. |
@@ -88,20 +88,20 @@ registry fresh each timestep.
 
 ## Milestones (build order; M-numbers stable identifiers)
 
-- **M1 T3 damage** [DONE 5be3286]: TelecomRegistry, TelecomSimulator
+- **M1 T3 damage** [DONE dd2e925]: TelecomRegistry, TelecomSimulator
   (config → BTSs), DamageModel (maria/sandy), kernel-telecom.cfg.
-- **M2 comms integration** [DONE 5be3286]: TelecomCommunicationModel,
+- **M2 comms integration** [DONE dd2e925]: TelecomCommunicationModel,
   hearing filter, `telecom.comms.bts-required`; headless exit-demo green.
-- **M3 repo hygiene** [DONE 090380f]: CI workflow, README, AGENTS.md.
+- **M3 repo hygiene** [DONE 69b9e6c]: CI workflow, README, AGENTS.md.
   (Fork-replay closed by Q1 — repo already public as a copy.)
-- **M4 T4 brigade** [DONE c9abd0b]: COW entity (TelecomEntityURN.COW),
+- **M4 T4 brigade** [DONE 91e2967]: COW entity (TelecomEntityURN.COW),
   WorkOrder, RestorationPolicy + RuleBasedRestorationPolicy, brigade
   mechanics (stock + setup countdowns), policy config-gate
   (telecom.policy.enabled, default off).
-- **M5 T5 scoring** [DONE 6f458b8]: PopulationCoverageScoreFunction +
+- **M5 T5 scoring** [DONE aba81d2]: PopulationCoverageScoreFunction +
   TelecomScoreFunction (RSL21+coverage composite, configurable weights),
   wired via score.function.
-- **M6 minimal T6** [DONE 6f458b8]: TelemetryServer — GET
+- **M6 minimal T6** [DONE aba81d2]: TelemetryServer — GET
   /telecom/sites|coverage|alarms, POST /telecom/workorders → brigade;
   telecom.http.port gate (0=off). **v1.0 released here (tag v1.0).**
   → v1.1 TMF-shape (blocked on telecom-oss O1).

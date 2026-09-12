@@ -24,12 +24,12 @@ contract to TMF Open APIs. **Design decisions are locked in
 
 ## Relationship to upstream
 
-This is a copy of [roborescue/rcrs-server](https://github.com/roborescue/rcrs-server)
-(BSD-3-Clause) at upstream HEAD (root commit `9deec95`), extended by the
-`modules/telecom` module. It is **not** a GitHub fork of upstream (no
-shared git ancestry): upstream changes are merged by tree-diff porting.
-All upstream code is untouched except `build.gradle` (wired the telecom
-source dir + jar tasks, mirroring how every other module is wired).
+This is a fork of [roborescue/rcrs-server](https://github.com/roborescue/rcrs-server)
+(BSD-3-Clause) with the telecom disaster extension: a
+`modules/telecom` module and small additive wiring in `build.gradle`
+(telecom source dir + jar tasks, mirroring how every other module is
+wired). Upstream sync is normal forking workflow
+(`git fetch upstream && git merge upstream/master`).
 
 **Extension rules** (see DECISIONS.md): telecom code lives only in
 `modules/telecom`; `modules/standard`, `modules/kernel`,
