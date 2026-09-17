@@ -84,8 +84,10 @@ public class BTSLayer extends AbstractViewLayer {
         }
         Collection<RenderedObject> result = new ArrayList<>();
         // Pixels per millimetre, derived from the transform itself.
-        double pxPerMmX = Math.abs(t.xToScreen(1000) - t.xToScreen(0)) / 1000.0;
-        double pxPerMmY = Math.abs(t.yToScreen(0) - t.yToScreen(1000)) / 1000.0;
+        // Use screenToX/screenToY (double precision) to avoid integer
+        // quantization of xToScreen/yToScreen (which return int).
+        double pxPerMmX = 1.0 / (t.screenToX(1) - t.screenToX(0));
+        double pxPerMmY = 1.0 / (t.screenToY(1) - t.screenToY(0));
         g.setComposite(AlphaComposite.SrcOver.derive(COVERAGE_ALPHA));
         for (BTS bts : btsList) {
             Pair<Integer, Integer> loc = bts.getLocation(null);

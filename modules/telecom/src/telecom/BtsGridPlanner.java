@@ -200,17 +200,19 @@ public class BtsGridPlanner {
   public Plan plan(StandardWorldModel world, Params params) {
     Pair<Pair<Integer, Integer>, Pair<Integer, Integer>> bounds =
         world.getWorldBounds();
+    Pair<List<long[]>, List<List<Point2D>>> centroidsAndPolygons =
+        buildingCentroidsAndPolygons(world);
     return plan(bounds.first().first(), bounds.first().second(),
         bounds.second().first(), bounds.second().second(),
-        buildingCentroids(world), buildingPolygons(world), params);
+        centroidsAndPolygons.first(), centroidsAndPolygons.second(), params);
   }
 
   /**
-   * Plan placement for a map box with building polygon containment. Unlike the
-   * pure-geometry overload, this variant snaps each grid point to a centroid
-   * that passes {@link GeometryTools2D#isPointInsidePolygon} against the
-   * building's perimeter, so concave buildings (U-shaped, L-shaped) are
-   * handled correctly.
+   * Plan placement for a map box with building polygon containment. Each grid
+   * point snaps to the nearest building centroid that passes
+   * {@link GeometryTools2D#isPointInsidePolygon} against the building's
+   * perimeter, so concave buildings (U-shaped, L-shaped) are handled
+   * correctly.
    *
    * @param minX      Model-space minimum X (mm).
    * @param minY      Model-space minimum Y (mm).
@@ -238,14 +240,17 @@ public class BtsGridPlanner {
     int rows = shape[1];
     long dx = width / cols;
     long dy = height / rows;
-    long x0 = dx / 2;
-    long y0 = dy / 2;
+    long x0 = minX + dx / 2;  // cell-centred, shifted by map origin
+    long y0 = minY + dy / 2;  // cell-centred, shifted by map origin
     int radius = coverageRadius(dx, dy);
     long snapMax = Math.max(1, Math.min(dx, dy) / 1000L * params.snapMaxMilli);
 
-    List<long[]> raw = new ArrayList<>();
-    for (int row = 0; row < rows; row++) {
-      for (int col = 0; col < cols; col++) {
+    // Emit exactly `target` sites: quota ensures the [minSites,maxSites] clamp
+    // is never bypassed by shape rounding (gridShape rounds cols and rows
+    // independently, so cols*rows can exceed target on non-square maps).
+    List<long[]> raw = new ArrayList<>(target);
+    for (int row = 0, emitted = 0; row < rows && emitted < target; row++) {
+      for (int col = 0; col < cols && emitted < target; col++, emitted++) {
         raw.add(new long[] {x0 + col * dx, y0 + row * dy});
       }
     }
@@ -255,12 +260,61 @@ public class BtsGridPlanner {
   }
 
   /**
+   * Building centroids and polygons for every building in the world model, in
+   * the same order. Non-Building entities and edgeless buildings are skipped
+   * (no entry in either list) — this is the aligned pair that
+   * {@link #snapToBuildingsWithContainment} expects; callers that need both
+   * centroids and polygons should use this rather than calling
+   * {@link #buildingCentroids(StandardWorldModel)} and
+   * {@link #buildingPolygons(StandardWorldModel)} separately (those two can
+   * diverge when a degenerate building exists).
+   *
+   * @param world The world model.
+   * @return A pair of aligned lists: centroids ({@code [x, y]} in mm) and
+   *         polygons (one vertex list per centroid; never empty for a
+   *         contained centroid).
+   */
+  public static Pair<List<long[]>, List<List<Point2D>>> buildingCentroidsAndPolygons(
+      StandardWorldModel world) {
+    List<long[]> centroids = new ArrayList<>();
+    List<List<Point2D>> polygons = new ArrayList<>();
+    for (StandardEntity e : world.getEntitiesOfType(StandardEntityURN.BUILDING)) {
+      if (!(e instanceof rescuecore2.standard.entities.Building)) {
+        continue;
+      }
+      rescuecore2.standard.entities.Building b =
+          (rescuecore2.standard.entities.Building) e;
+      List<Edge> edges = b.getEdges();
+      if (edges == null || edges.isEmpty()) {
+        continue;
+      }
+      long sx = 0;
+      long sy = 0;
+      int n = 0;
+      for (Edge edge : edges) {
+        sx += edge.getStartX() + edge.getEndX();
+        sy += edge.getStartY() + edge.getEndY();
+        n += 2;
+      }
+      long[] centroid = new long[] {sx / n, sy / n};
+      centroids.add(centroid);
+      polygons.add(buildingPolygon(b));
+    }
+    return new Pair<>(centroids, polygons);
+  }
+
+  /**
    * Building polygons for every building in the world model, in the same
    * order as {@link #buildingCentroids(StandardWorldModel)}.
    *
    * @param world The world model.
    * @return One polygon per building (empty list for buildings with no edges).
+   * @deprecated Use {@link #buildingCentroidsAndPolygons(StandardWorldModel)}
+   *             when centroids and polygons must stay aligned; this method
+   *             adds empty-list sentinels for skipped entities, which diverges
+   *             from {@link #buildingCentroids(StandardWorldModel)}.
    */
+  @Deprecated
   public static List<List<Point2D>> buildingPolygons(StandardWorldModel world) {
     List<List<Point2D>> result = new ArrayList<>();
     for (StandardEntity e : world.getEntitiesOfType(StandardEntityURN.BUILDING)) {
