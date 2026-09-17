@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Set;
 
 import rescuecore2.misc.Pair;
+import rescuecore2.misc.geometry.GeometryTools2D;
+import rescuecore2.misc.geometry.Point2D;
 import rescuecore2.standard.entities.Edge;
 import rescuecore2.standard.entities.StandardEntity;
 import rescuecore2.standard.entities.StandardEntityURN;
@@ -29,7 +31,8 @@ import rescuecore2.standard.entities.StandardWorldModel;
  *   <li>coverage radius from cell geometry (0.75 * half-diagonal, clamped
  *       to [50 m, 500 m]);</li>
  *   <li>each grid point snapped to the nearest unused building centroid
- *       within a budget — sites sit inside blocks, never mid-road.</li>
+ *       that lies inside that building's polygon — sites sit inside blocks,
+ *       never mid-road or in courtyard voids.</li>
  * </ul>
  *
  * <p>Config keys (per-mille integers to stay int-only):</p>
@@ -44,6 +47,15 @@ import rescuecore2.standard.entities.StandardWorldModel;
  *
  * <p>Placement precedence in TelecomSimulator is unchanged:
  * {@code telecom.bts.list} &gt; {@code telecom.bts.grid} &gt; planner.</p>
+ *
+ * <p><strong>Concave buildings:</strong> building centroids are computed as
+ * the average of edge endpoints. For U-shaped or L-shaped buildings this
+ * average can fall in a courtyard void, so a raw grid point snapped to that
+ * centroid would sit outside the block. The planner validates each candidate
+ * centroid with {@link GeometryTools2D#isPointInsidePolygon} against the
+ * building's edge polygon; a centroid that fails containment is skipped, and
+ * the raw point is kept instead. See {@link #snapToBuildingsWithContainment}
+ * and {@link #buildingPolygon}.</p>
  */
 public class BtsGridPlanner {
 
@@ -175,7 +187,10 @@ public class BtsGridPlanner {
   }
 
   /**
-   * Plan placement for a populated world model.
+   * Plan placement from the world model. Site count derives from map area,
+   * grid shape from aspect ratio, radius from cell geometry, and each grid
+   * point snaps to the nearest building centroid that lies inside that
+   * building's polygon (concave buildings are handled correctly).
    *
    * @param world  The world model (bounds are indexed lazily by
    *               {@link StandardWorldModel#getWorldBounds()}).
@@ -187,23 +202,30 @@ public class BtsGridPlanner {
         world.getWorldBounds();
     return plan(bounds.first().first(), bounds.first().second(),
         bounds.second().first(), bounds.second().second(),
-        buildingCentroids(world), params);
+        buildingCentroids(world), buildingPolygons(world), params);
   }
 
   /**
-   * Plan placement for a map box. Pure geometry: no world model needed.
+   * Plan placement for a map box with building polygon containment. Unlike the
+   * pure-geometry overload, this variant snaps each grid point to a centroid
+   * that passes {@link GeometryTools2D#isPointInsidePolygon} against the
+   * building's perimeter, so concave buildings (U-shaped, L-shaped) are
+   * handled correctly.
    *
    * @param minX      Model-space minimum X (mm).
    * @param minY      Model-space minimum Y (mm).
    * @param maxX      Model-space maximum X (mm).
    * @param maxY      Model-space maximum Y (mm).
-   * @param centroids Candidate building centroids in model space (mm); may
-   *                  be empty (then no snapping happens).
+   * @param centroids Candidate building centroids (mm); must align with
+   *                  {@code polygons} by index.
+   * @param polygons  One polygon per centroid (vertices in mm); empty list =
+   *                  unusable centroid.
    * @param params    The planner parameters.
    * @return The placement plan.
    */
   public Plan plan(long minX, long minY, long maxX, long maxY,
-                   List<long[]> centroids, Params params) {
+                   List<long[]> centroids, List<List<Point2D>> polygons,
+                   Params params) {
     long width = maxX - minX;
     long height = maxY - minY;
     if (width <= 0 || height <= 0) {
@@ -227,8 +249,30 @@ public class BtsGridPlanner {
         raw.add(new long[] {x0 + col * dx, y0 + row * dy});
       }
     }
-    List<long[]> snapped = snapToBuildings(raw, centroids, snapMax);
+    List<long[]> snapped = snapToBuildingsWithContainment(raw, centroids,
+        polygons, snapMax);
     return new Plan(cols, rows, dx, dy, x0, y0, radius, raw, snapped);
+  }
+
+  /**
+   * Building polygons for every building in the world model, in the same
+   * order as {@link #buildingCentroids(StandardWorldModel)}.
+   *
+   * @param world The world model.
+   * @return One polygon per building (empty list for buildings with no edges).
+   */
+  public static List<List<Point2D>> buildingPolygons(StandardWorldModel world) {
+    List<List<Point2D>> result = new ArrayList<>();
+    for (StandardEntity e : world.getEntitiesOfType(StandardEntityURN.BUILDING)) {
+      if (!(e instanceof rescuecore2.standard.entities.Building)) {
+        result.add(List.of());
+        continue;
+      }
+      rescuecore2.standard.entities.Building b =
+          (rescuecore2.standard.entities.Building) e;
+      result.add(buildingPolygon(b));
+    }
+    return result;
   }
 
   /**
@@ -318,19 +362,59 @@ public class BtsGridPlanner {
   }
 
   /**
-   * Greedy nearest-centroid snap with a distance budget: each raw point
-   * moves to the closest unused centroid within the budget, else keeps its
+   * Polygon vertices for a building, in edge order. RCRS building edges form
+   * a closed perimeter, so the vertex list can be fed directly to
+   * {@link GeometryTools2D#isPointInsidePolygon}.
+   *
+   * @param building The building entity.
+   * @return Vertices as {@code Point2D} in model millimetres; empty if the
+   *         building has no edges.
+   */
+  public static List<Point2D> buildingPolygon(rescuecore2.standard.entities.Building building) {
+    List<Edge> edges = building.getEdges();
+    if (edges == null || edges.isEmpty()) {
+      return List.of();
+    }
+    List<Point2D> vertices = new ArrayList<>(edges.size());
+    for (Edge edge : edges) {
+      vertices.add(new Point2D(edge.getStartX(), edge.getStartY()));
+    }
+    return vertices;
+  }
+
+  /**
+   * Greedy nearest-centroid snap with a distance budget and polygon containment
+   * validation: each raw point moves to the closest unused centroid within the
+   * budget <em>and</em> inside that centroid's building polygon, else keeps its
    * raw position.
    *
-   * @param raw       Grid points ({@code [x, y]} in mm), row-major.
-   * @param centroids Building centroids ({@code [x, y]} in mm).
-   * @param snapMax   Maximum snap distance (mm).
+   * <p>This closes the concave-building gap in {@link #snapToBuildings(List, List, long)}:
+   * a centroid computed from edge endpoints can fall in a courtyard void for
+   * U-shaped or L-shaped buildings, so a raw point snapped there would sit
+   * outside the block. The caller supplies one polygon per centroid (empty list
+   * = centroid unusable); points that would snap outside a polygon keep their
+   * raw position instead.
+   *
+   * @param raw        Grid points ({@code [x, y]} in mm), row-major.
+   * @param centroids  Building centroids ({@code [x, y]} in mm), one per
+   *                   candidate snap target.
+   * @param polygons   One polygon per centroid (vertices in mm), may be empty
+   *                   for unusable centroids; must be the same size as
+   *                   {@code centroids}.
+   * @param snapMax    Maximum snap distance (mm).
    * @return One point per raw point, same order; the raw point is reused
-   *         when no candidate is in range.
+   *         when no candidate is in range or passes containment.
    */
-  public static List<long[]> snapToBuildings(List<long[]> raw,
-                                             List<long[]> centroids,
-                                             long snapMax) {
+  public static List<long[]> snapToBuildingsWithContainment(
+      List<long[]> raw,
+      List<long[]> centroids,
+      List<List<Point2D>> polygons,
+      long snapMax) {
+    if (centroids.size() != polygons.size()) {
+      throw new IllegalArgumentException(
+          "centroids.size() = " + centroids.size()
+              + " != polygons.size() = " + polygons.size());
+    }
     List<long[]> result = new ArrayList<>(raw.size());
     if (centroids.isEmpty()) {
       result.addAll(raw);
@@ -344,15 +428,30 @@ public class BtsGridPlanner {
         if (used.contains(i)) {
           continue;
         }
-        long dxp = centroids.get(i)[0] - point[0];
-        long dyp = centroids.get(i)[1] - point[1];
+        // Skip centroids whose polygon is empty (unusable).
+        List<Point2D> poly = polygons.get(i);
+        if (poly.isEmpty()) {
+          continue;
+        }
+        long[] centroid = centroids.get(i);
+        long dxp = centroid[0] - point[0];
+        long dyp = centroid[1] - point[1];
         long dist = dxp * dxp + dyp * dyp;
-        if (dist < bestDist) {
+        if (dist >= bestDist) {
+          continue;
+        }
+        // containment check before distance budget — a too-far point can't
+        // be the best anyway, but we need the polygon check to matter.
+        if (!GeometryTools2D.isPointInsidePolygon(
+            new Point2D(centroid[0], centroid[1]), poly)) {
+          continue;
+        }
+        if (dist <= snapMax * snapMax) {
           bestDist = dist;
           best = i;
         }
       }
-      if (best >= 0 && bestDist <= snapMax * snapMax) {
+      if (best >= 0) {
         used.add(best);
         result.add(centroids.get(best));
       } else {
@@ -360,6 +459,44 @@ public class BtsGridPlanner {
       }
     }
     return result;
+  }
+
+  /**
+   * Greedy nearest-centroid snap with a distance budget: each raw point
+   * moves to the closest unused centroid within the budget, else keeps its
+   * raw position.
+   *
+   * <p><strong>Caveat:</strong> this method does not validate that a snapped
+   * point lies inside the building polygon. For concave buildings (U-shaped,
+   * L-shaped) the edge-average centroid can fall in a courtyard void, so a
+   * raw point snapped there would sit outside the block. Use
+   * {@link #snapToBuildingsWithContainment(List, List, List, long)} when
+   * building polygons are available; this legacy method is retained for
+   * callers that only have centroid coordinates.
+   *
+   * @param raw       Grid points ({@code [x, y]} in mm), row-major.
+   * @param centroids Building centroids ({@code [x, y]} in mm).
+   * @param snapMax   Maximum snap distance (mm).
+   * @return One point per raw point, same order; the raw point is reused
+   *         when no candidate is in range.
+   */
+  public static List<long[]> snapToBuildings(List<long[]> raw,
+                                             List<long[]> centroids,
+                                             long snapMax) {
+    // Legacy path: no polygon containment check. Build a trivial polygon
+    // around each centroid so snapToBuildingsWithContainment passes the
+    // containment test for every centroid (behaves like the original).
+    List<List<Point2D>> polygons = new ArrayList<>(centroids.size());
+    for (int i = 0; i < centroids.size(); i++) {
+      long[] c = centroids.get(i);
+      // Tiny 1mm box centred on the centroid — guaranteed to contain it.
+      polygons.add(List.of(
+          new Point2D(c[0] - 1, c[1] - 1),
+          new Point2D(c[0] + 1, c[1] - 1),
+          new Point2D(c[0] + 1, c[1] + 1),
+          new Point2D(c[0] - 1, c[1] + 1)));
+    }
+    return snapToBuildingsWithContainment(raw, centroids, polygons, snapMax);
   }
 }
 

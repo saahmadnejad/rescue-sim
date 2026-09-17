@@ -8,6 +8,8 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import rescuecore2.misc.geometry.Point2D;
+
 /**
  * Unit tests for the map-aware BTS grid planner: count scales with map
  * area (the "same count in every city" bug), sites stay inside the map,
@@ -54,8 +56,12 @@ class BtsGridPlannerTest {
 
   @Test
   void Given_BerlinBox_When_PlanBox_Then_SitesCentredAndInside() {
+    // Use the polygon-aware overload with empty polygons to exercise the
+    // legacy centroid-only snap path (same signature shape as before).
+    List<long[]> centroids = new ArrayList<>();
+    List<List<Point2D>> polygons = new ArrayList<>();
     BtsGridPlanner.Plan plan = new BtsGridPlanner().plan(0, 0, 2187484,
-        1637291, new ArrayList<>(), DEFAULTS);
+        1637291, centroids, polygons, DEFAULTS);
     assertTrue(plan.rawPoints.size() >= 24 && plan.rawPoints.size() <= 35);
     long firstX = plan.rawPoints.get(0)[0];
     long firstY = plan.rawPoints.get(0)[1];
