@@ -14,13 +14,14 @@ sim at v1.1).
 ## Status
 
 **v1.0 released (tag `v1.0`).** Telecom disaster module implemented
-(`modules/telecom`, 41 unit tests green, headless closed-loop verified):
+(`modules/telecom`, unit tests green, headless closed-loop verified):
 BTS entities, radial coverage v0, Maria/Sandy-calibrated damage model,
 BTS-gated communication model, restoration brigade (COW/repair/refuel)
 with the rule-based classical policy, population-coverage scoring, and a
-plain-JSON REST telemetry/work-order endpoint. v1.1 reshapes the REST
-contract to TMF Open APIs. **Design decisions are locked in
-[DECISIONS.md](DECISIONS.md) — read it before contributing.**
+plain-JSON REST telemetry/work-order endpoint. T7 (post-v1.0): BTS/COW
+coverage discs on the map viewer (`telecom.view`, config-gated). v1.1
+reshapes the REST contract to TMF Open APIs. **Design decisions are
+locked in [DECISIONS.md](DECISIONS.md) — read it before contributing.**
 
 ## Relationship to upstream
 
@@ -96,6 +97,114 @@ assumes cwd `scripts/`).
 Classic upstream scenarios run unchanged: `bash scripts/start.sh -m
 maps/test/map -c maps/test/config -g` (see `scripts/functions.sh`).
 
+### Seeing BTS on the map (T7)
+
+`scripts/start.sh` cannot show BTS, for two independent reasons:
+
+1. `scripts/functions.sh` (`startKernel`) hardcodes `-c $CONFIGDIR/kernel.cfg`,
+   and `kernel.cfg` has no `kernel.simulators.auto` / `kernel.viewers.auto`
+   keys at all — so no telecom component is ever started.
+2. It launches viewers as separate JVMs over TCP. `BTSLayer` reads the
+   **in-process** `TelecomRegistry` singleton, so only an in-process viewer
+   can draw it.
+
+Use the telecom launcher (additive file; no upstream script modified):
+
+```bash
+cd scripts && bash start-telecom.sh        # GUI on the test map
+cd scripts && bash start-telecom.sh -g     # headless
+# key=value overrides go through TELECOM_OPTS, e.g. expose telemetry:
+cd scripts && TELECOM_OPTS="--telecom.http.port=8081" bash start-telecom.sh
+```
+
+It runs `kernel.StartKernel -c maps/test/config/kernel-telecom.cfg`, which
+(via `kernel-inline.cfg`) auto-starts simulators and viewers **in-process**
+through `kernel.InlineComponentLauncher` — the same JVM, so the viewer can
+read the registry.
+
+Two map windows appear, and this is deliberate: the classic `Viewer N`
+(which has no BTS layer by design) and **`Telecom viewer N`** — the one
+with translucent coverage discs, tower markers and the `Coverage: %`
+readout. Hide the discs with `viewer.standard.BTSLayer.visible: false`.
+Telecom entities stay out of the standard world model, so `sample` agents
+and the classic viewer are unaffected.
+
+Note on `telecom.bts.grid` units: positions are **model millimetres, 0-based**.
+`GMLWorldModelCreator` converts raw GML coordinates with
+`ScaleConversion(map.minX, map.minY, 1000, 1000)` and
+`convertX = (x - xOrigin) * xScale` (`modules/maps/src/maps/ScaleConversion.java:27`),
+so the raw minimum becomes 0 — the model box is `0..(rawMax - rawMin) x 1000`
+per axis. Grids must be derived from that box (`dx = span/cols`, `x0 = dx/2`),
+not from raw GML minima; taking raw coordinates shifts the whole grid off the
+map's left/bottom edge (there is a regression test:
+`BtsPlacementConfigTest` walks every `maps/*/config/kernel-telecom.cfg`,
+parses the sibling `map/map.gml`, recomputes the model box and asserts every
+declared site is inside it and the grid is centred).
+
+### BTS placement on real maps: the planner (T7 review)
+
+Hand-tuned grids do not transfer between maps: the first kobe/berlin rollout
+shipped the same 4x3 grid shape on maps whose areas differ by 21x (kobe
+~0.17 km2 vs berlin ~3.6 km2), with arbitrary radii, and free coordinate-space
+grid points landed on roads as often as on blocks. When a telecom config sets
+**neither** `telecom.bts.list` nor `telecom.bts.grid`, placement is derived
+from the world model at kernel connect time by `telecom.BtsGridPlanner`:
+
+- site count `N = round(density x area)`, clamped to `[min-sites, max-sites]`
+  — counts now scale with city size;
+- grid shape from the map aspect ratio, cell-centred (`x0 = dx/2`) so margins
+  are symmetric by construction;
+- coverage radius `= 0.75 x cell-diagonal/2`, clamped to `[50 m, 500 m]`;
+- each grid point snaps to the nearest unused **building centroid** within
+  `0.35 x min(dx, dy)` — sites sit inside blocks, not on roads.
+
+Tuning keys: `telecom.bts.sites-per-km2-milli` (default 8000 = 8/km2),
+`telecom.bts.min-sites` / `telecom.bts.max-sites` (6 / 48),
+`telecom.bts.snap-max-milli` (350). The chosen geometry is logged at connect
+(`planned BTS placement: ...`). Guarded by `BtsGridPlannerTest` (8 unit tests)
+plus the `BtsPlacementConfigTest` map-bounds checks for explicit placements.
+
+### Real maps: kobe and berlin (T7)
+
+The same scenario runs on shipped upstream maps with the telecom launcher:
+
+```bash
+cd scripts
+bash start-telecom.sh -m ../maps/kobe/map -c ../maps/kobe/config     # kobe, GUI
+bash start-telecom.sh -m ../maps/berlin/map -c ../maps/berlin/config -g   # berlin, headless
+```
+
+The `-m/-c` flags select the map/config dirs (default is still the test map);
+the launcher passes `--gis.map.dir=$MAP` so a stale absolute `gis.map.dir`
+inside a map's `gis.cfg` cannot break the load, and it kills stale kernels
+with `safeKillStale` (which never matches the launcher itself — upstream
+`kill.sh`'s `ps -ef` grep does, and self-killed the launcher with exit 137
+when invoked by absolute path). **`safeKillStale` kills every kernel from
+this repo, so only one scenario can run at a time** — launching berlin stops
+a running kobe. Run them sequentially, or comment out the `safeKillStale`
+call for a temporary second instance (log dir is shared either way).
+
+Expect larger loads on real maps (kobe ≈ 2.6k entities, berlin ≈ 5k) and a
+map-load pause before the first window (berlin ~20-30s). Verify placement
+without a GUI via the headless offscreen render harness (see
+`scripts/diag-telecom.sh` history or `telecom/view` docs) and, once up, the
+telemetry endpoints `GET /telecom/sites` / `GET /telecom/coverage`:
+
+```bash
+cd scripts && TELECOM_OPTS="--telecom.http.port=8082" \
+  bash start-telecom.sh -m ../maps/kobe/map -c ../maps/kobe/config
+curl -s localhost:8082/telecom/sites | head -3
+curl -s localhost:8082/telecom/coverage
+```
+
+Shipped placement (verified by live telemetry): test map keeps its explicit
+3x3 grid at `55000x47000mm` spacing from `27500,23500` (deterministic doc
+example); kobe and berlin run the **planner** — kobe: 3x2, radius ~90 m,
+6/6 sites snapped to buildings; berlin: 6x5, radius ~184 m, 28/30 snapped.
+To pin a fixed layout on a real map, set `telecom.bts.grid` (model mm,
+0-based — see the units note above; the old hand-tuned values are kept as
+comments in each `kernel-telecom.cfg`).
+
 ## Telecom config keys (opt-in)
 
 | Key | Meaning |
@@ -105,6 +214,9 @@ maps/test/map -c maps/test/config -g` (see `scripts/functions.sh`).
 | `score.function: telecom.score.TelecomScoreFunction` | RSL21 + population-coverage% composite scoring |
 | `telecom.bts.list: x,y,radius;...` | explicit BTS placement (takes precedence) |
 | `telecom.bts.grid: cols,rows,dx,dy,x0,y0,radius` | seeded grid placement |
+| `telecom.bts.sites-per-km2-milli` | planner density (default 8000 = 8 sites/km2) |
+| `telecom.bts.min-sites` / `telecom.bts.max-sites` | planner count clamp (default 6 / 48) |
+| `telecom.bts.snap-max-milli` | planner building-snap budget (default 350 = 0.35 of min(dx,dy)) |
 | `telecom.damage.scenario: maria\|sandy\|none` | day-1 damage curve |
 | `telecom.damage.steps-per-day: N` | kernel steps per simulated day (1440 = 1-min steps) |
 | `telecom.damage.generator-hours: H` | generator fuel tank (hours) |
@@ -117,6 +229,8 @@ maps/test/map -c maps/test/config -g` (see `scripts/functions.sh`).
 | `telecom.brigade.refuel-steps: N` | refuel time (default 720 ≈ 12 h) |
 | `telecom.brigade.refuel-hours: H` | tank refill amount (default 72 h) |
 | `telecom.http.port: P` | REST telemetry port (0 = off, default); `GET /telecom/sites\|coverage\|alarms`, `POST /telecom/workorders` |
+| `kernel.viewers.auto +: telecom.view.TelecomViewerComponent` | map viewer with BTS/COW/coverage-disc layers (telecom state via TelecomRegistry, not the kernel model) |
+| `viewer.standard.BTSLayer.visible: false` | hide a telecom layer by default (layers also toggle in the viewer right-click menu) |
 
 See `maps/test/config/kernel-telecom.cfg` for a working example.
 
@@ -130,7 +244,7 @@ See `maps/test/config/kernel-telecom.cfg` for a working example.
 - [x] T5: coverage scoring function
 - [x] T6 (v1.0): telemetry emitter + work-order ingestion (plain REST)
 - [ ] T6 (v1.1): TMF-shaped contract (TMF639/642/697 + TMF630 events) — with telecom-oss
-- [ ] T7: BTS layer on real maps (test → kobe → berlin)
+- [x] T7: BTS layer on real maps (test, kobe, berlin — grids in model space, guarded by `BtsPlacementConfigTest`)
 
 ## License
 
