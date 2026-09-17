@@ -42,6 +42,9 @@ import telecom.io.TelemetryServer;
  *       placement (semi-colon separated entries).</li>
  *   <li>{@code telecom.bts.grid: cols,rows,dx,dy,x0,y0,radius} — seeded
  *       grid alternative (list takes precedence).</li>
+ *   <li>Neither set: map-aware placement via {@link BtsGridPlanner} —
+ *       site count from map area, radius from cell geometry, sites snapped
+ *       to building centroids (see class docs for tuning keys).</li>
  *   <li>{@code telecom.damage.*} — see {@link DamageModel}.</li>
  * </ul>
  */
@@ -181,7 +184,19 @@ public class TelecomSimulator extends StandardSimulator {
           }
         }
       }
+      return result;
     }
+    // Map-aware planner: derive count/radius/positions from the world
+    // model. T7 placement review — fixes the same-count-everywhere and
+    // sites-on-roads artifacts of hand-written grids. Runs when neither
+    // telecom.bts.list nor telecom.bts.grid is configured.
+    BtsGridPlanner.Plan plan = new BtsGridPlanner()
+        .plan(model, BtsGridPlanner.Params.fromConfig(config));
+    for (long[] point : plan.snappedPoints) {
+      result.add(makeBts(nextId++, (int) point[0], (int) point[1],
+          plan.radius));
+    }
+    Logger.info("TelecomSimulator: planned BTS placement: " + plan);
     return result;
   }
 

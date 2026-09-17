@@ -78,7 +78,16 @@ Kernel (unmodified)
       CompositeScoreFunction: RSL21-equivalent + population-coverage%
 
 TelecomRegistry (telecom package singleton)
- └─ snapshot BTSs; readers: comms model, coverage, telemetry, scoring
+ └─ snapshot BTSs; readers: comms model, coverage, telemetry, scoring,
+     viewer layers
+
+Viewer seam [M7, kernel unmodified]
+  └─ kernel.viewers.auto +: telecom.view.TelecomViewerComponent
+       in-process viewer: StandardWorldModel holds only StandardEntities;
+       telecom state comes from the in-JVM TelecomRegistry singleton,
+       never the kernel model (BTS is not a StandardEntity — pushing it
+       there would throw in AbstractWorldModel.addEntity,
+       AbstractWorldModel.java:41-48).
 ```
 
 Execution order is safe WITHOUT kernel edits: simulators process + push
@@ -105,6 +114,35 @@ registry fresh each timestep.
   /telecom/sites|coverage|alarms, POST /telecom/workorders → brigade;
   telecom.http.port gate (0=off). **v1.0 released here (tag v1.0).**
   → v1.1 TMF-shape (blocked on telecom-oss O1).
+- **M7 T7 viewer** [DONE 2026-09-14, branch feat/telecom-t7-bts-planner]: TelecomViewerComponent
+  (StandardViewer subclass) + BTSLayer/COWLayer/TelecomCoverageLayer,
+  launched via `kernel.viewers.auto +: telecom.view.TelecomViewerComponent`
+  (kernel-telecom.cfg:39; append semantics per kernel-inline.cfg:68).
+  BTS/COW/coverage render from the TelecomRegistry singleton read at
+  each timestep; disc visibility follows BTS.isServing(). Layers toggle
+  via the viewer right-click menu and `viewer.standard.<Layer>.visible`
+  (StandardViewLayer.java:234-238). Zero kernel/standard/rescuecore2
+  edits; classic scenarios unaffected (SampleViewer only, per
+  kernel-inline.cfg:68). Verified by unit tests (telecom.view, 5 tests)
+  + smoke run (telecom.jar rebuilt, TelecomViewerComponent in merged
+  `kernel.viewers.auto`, map loaded); on-screen check is manual (GUI).
+- **M8 T7 placement review — BtsGridPlanner** [DONE 2026-09-17, this
+  branch]: hand-tuned grids do not transfer across maps (same 4x3 shape
+  on maps differing 21x in area; arbitrary radii; free coordinate-space
+  grid points land on roads). When a telecom config sets neither
+  `telecom.bts.list` nor `telecom.bts.grid`, TelecomSimulator.postConnect
+  derives placement from the world model (getWorldBounds,
+  StandardWorldModel.java:318): N = round(density x area) clamped to
+  [6, 48] (`telecom.bts.sites-per-km2-milli` 8000), cell-centred
+  aspect-matched grid, radius = 0.75 x cell-diagonal/2 clamped
+  [50 m, 500 m], each point snapped to the nearest unused building
+  centroid within 0.35 x min(dx, dy). Live-verified: kobe 3x2 r~90m
+  6/6 snapped; berlin 6x5 r~184m 28/30 snapped. Precedence
+  list > grid > planner keeps every prior config valid; guarded by
+  BtsGridPlannerTest (8 tests) + adapted BtsPlacementConfigTest.
+  Gotcha: `jars/` is the launcher's runtime classpath — re-run
+  `./gradlew telecomJar` after telecom code changes or the kernel
+  silently runs stale classes (symptom: 0 BTSs, no planner log).
 
 ## Verified plugin seams (file:line, commit b5d8ff3 baseline)
 
