@@ -41,23 +41,27 @@ public final class TelecomRegistry {
   /**
    * Replace the registry content. Called by the TelecomSimulator when the
    * BTS set changes (initial load, COW deployment, tower removal).
+   * The published snapshot is a true immutable copy, so non-kernel-thread
+   * readers (telemetry HTTP, viewer paint) never observe a transient
+   * empty/partial list.
    *
-   * @param bts The new BTS set (ownership transferred).
+   * @param bts The new BTS set.
    */
   public void setAll(Collection<BTS> bts) {
     btsList.clear();
     btsList.addAll(bts);
-    snapshot = Collections.unmodifiableList(btsList);
+    snapshot = List.copyOf(btsList);
   }
 
   /**
    * Add a single BTS (e.g. a COW deployed mid-simulation).
+   * The published snapshot is a true immutable copy.
    *
    * @param bts The BTS to add.
    */
   public void add(BTS bts) {
     btsList.add(bts);
-    snapshot = Collections.unmodifiableList(btsList);
+    snapshot = List.copyOf(btsList);
   }
 
   /**
