@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.awt.Graphics2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.Collection;
 import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import rescuecore2.misc.gui.ScreenTransform;
 import rescuecore2.registry.Registry;
 import rescuecore2.standard.entities.StandardWorldModel;
+import rescuecore2.view.RenderedObject;
 import rescuecore2.view.ViewLayer;
 import rescuecore2.worldmodel.EntityID;
 import telecom.TelecomRegistry;
@@ -117,6 +119,39 @@ class TelecomViewerLayersTest {
     // --- Act / Assert ---
     Graphics2D g = (Graphics2D) new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB).getGraphics();
     assertTrue(layer.render(g, new ScreenTransform(0, 0, 100000, 100000), 800, 600).isEmpty());
+  }
+
+  @Test
+  void Given_BerlinSizedMap_When_Rendered_Then_DiscsAreRoundNotFlattened() {
+    // --- Arrange ---
+    // Berlin model box with the coverage radius BtsGridPlanner derives for it.
+    // Regression for the screenToY sign: screen Y increases downward, so the
+    // raw inverse scale is negative and Math.max(2, ...) pinned every disc to
+    // a 4 px-tall ellipse while the width stayed correct (84 x 4 px at 500x500).
+    int radius = 183768;
+    registry.setAll(List.of(servingBTS(1, 1093742, 818645, radius)));
+    layer.view((Object) new StandardWorldModel());
+
+    // --- Act / Assert ---
+    for (int side : new int[] {500, 800, 1200}) {
+      Graphics2D g = (Graphics2D) new BufferedImage(side, side,
+          BufferedImage.TYPE_INT_ARGB).getGraphics();
+      ScreenTransform t = new ScreenTransform(0, 0, 2187484, 1637291);
+      t.rescale(side, side); // what ViewComponent does before render()
+      Collection<RenderedObject> rendered = layer.render(g, t, side, side);
+      assertEquals(1, rendered.size());
+      // Both dimensions, not just width: the vertical axis is the one that
+      // silently collapsed to the floor.
+      Rectangle2D disc = rendered.iterator().next().getShape().getBounds2D();
+      double expected = 2.0 * radius * side / 2187484.0;
+      assertEquals(expected, disc.getWidth(), 0.01,
+          "disc width at " + side + "px");
+      assertEquals(expected, disc.getHeight(), 0.01,
+          "disc height at " + side + "px");
+      assertTrue(disc.getHeight() > 4.0,
+          "disc must not sit on the 2 px floor at " + side + "px: "
+              + disc.getHeight());
+    }
   }
 
   @Test
