@@ -123,7 +123,7 @@ registry fresh each timestep.
   via the viewer right-click menu and `viewer.standard.<Layer>.visible`
   (StandardViewLayer.java:234-238). Zero kernel/standard/rescuecore2
   edits; classic scenarios unaffected (SampleViewer only, per
-  kernel-inline.cfg:68). Verified by unit tests (telecom.view, 5 tests)
+  kernel-inline.cfg:68). Verified by unit tests (telecom.view, 6 tests)
   + smoke run (telecom.jar rebuilt, TelecomViewerComponent in merged
   `kernel.viewers.auto`, map loaded); on-screen check is manual (GUI).
 - **M8 T7 placement review — BtsGridPlanner** [DONE 2026-09-17, this
@@ -133,13 +133,19 @@ registry fresh each timestep.
   `telecom.bts.list` nor `telecom.bts.grid`, TelecomSimulator.postConnect
   derives placement from the world model (getWorldBounds,
   StandardWorldModel.java:318): N = round(density x area) clamped to
-  [6, 48] (`telecom.bts.sites-per-km2-milli` 8000), cell-centred
-  aspect-matched grid, radius = 0.75 x cell-diagonal/2 clamped
-  [50 m, 500 m], each point snapped to the nearest unused building
-  centroid within 0.35 x min(dx, dy). Live-verified: kobe 3x2 r~90m
-  6/6 snapped; berlin 6x5 r~184m 28/30 snapped. Precedence
+  [6, 48] (`telecom.bts.sites-per-km2-milli` 8000), aspect-matched grid
+  sized to cover N cells (rows = round(sqrt(N x h/w)), cols = ceil(N /
+  rows)) emitting exactly N cell-centre sites (first N % rows carry one
+  extra cell, shorter rows centred, so margins match within one cell and
+  the clamp binds the emitted count, not just the shape),
+  radius = 0.75 x cell-diagonal/2 clamped [50 m, 500 m], each point
+  snapped to the nearest unused building centroid within 0.35 x
+  min(dx, dy) that passes a point-in-polygon test against that building's
+  perimeter (concave blocks: a courtyard centroid is skipped and the raw
+  grid point kept — snapping is best-effort). Live-verified: kobe 3x2
+  r~90m 6/6 snapped; berlin 6x5 r~184m 29 sites, 27 snapped. Precedence
   list > grid > planner keeps every prior config valid; guarded by
-  BtsGridPlannerTest (8 tests) + adapted BtsPlacementConfigTest.
+  BtsGridPlannerTest (15 tests) + adapted BtsPlacementConfigTest.
   Gotcha: `jars/` is the launcher's runtime classpath — re-run
   `./gradlew telecomJar` after telecom code changes or the kernel
   silently runs stale classes (symptom: 0 BTSs, no planner log).
