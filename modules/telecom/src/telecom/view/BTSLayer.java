@@ -85,9 +85,13 @@ public class BTSLayer extends AbstractViewLayer {
         Collection<RenderedObject> result = new ArrayList<>();
         // Pixels per millimetre, derived from the transform itself.
         // Use screenToX/screenToY (double precision) to avoid integer
-        // quantization of xToScreen/yToScreen (which return int).
-        double pxPerMmX = 1.0 / (t.screenToX(1) - t.screenToX(0));
-        double pxPerMmY = 1.0 / (t.screenToY(1) - t.screenToY(0));
+        // quantization of xToScreen/yToScreen (which return int), and take the
+        // magnitude: screenToY runs the other way (screen Y increases
+        // downward), so its inverse scale is negative. Without Math.abs,
+        // radius * pxPerMmY is negative and Math.max(2, ...) pins every disc
+        // to a 4 px-tall ellipse while the width stays correct.
+        double pxPerMmX = Math.abs(1.0 / (t.screenToX(1) - t.screenToX(0)));
+        double pxPerMmY = Math.abs(1.0 / (t.screenToY(1) - t.screenToY(0)));
         g.setComposite(AlphaComposite.SrcOver.derive(COVERAGE_ALPHA));
         for (BTS bts : btsList) {
             Pair<Integer, Integer> loc = bts.getLocation(null);

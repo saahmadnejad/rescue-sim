@@ -25,14 +25,21 @@ import rescuecore2.standard.entities.StandardWorldModel;
  * <p>Everything is derived from the world model at connect time:</p>
  * <ul>
  *   <li>Site count from map area, clamped to [minSites, maxSites];</li>
- *   <li>grid shape from the map aspect ratio;</li>
- *   <li>cell-centred grid ({@code x0 = dx/2, y0 = dy/2}) — equal margins
- *       by construction;</li>
+ *   <li>grid shape from the map aspect ratio, rounded so {@code cols * rows}
+ *       covers the target count;</li>
+ *   <li>exactly {@code target} cell-centre sites: the first
+ *       {@code target % rows} rows carry one extra cell and shorter rows are
+ *       centred, so {@code x0 = dx/2, y0 = dy/2} leaves margins equal within
+ *       one cell in each axis (baking the first {@code target} cells
+ *       row-major does not — on a 100:1 map it left 31 km of slack on one
+ *       side against 0.7 km on the other);</li>
  *   <li>coverage radius from cell geometry (0.75 * half-diagonal, clamped
  *       to [50 m, 500 m]);</li>
- *   <li>each grid point snapped to the nearest unused building centroid
- *       that lies inside that building's polygon — sites sit inside blocks,
- *       never mid-road or in courtyard voids.</li>
+ *   <li>each grid point snapped to the nearest unused building centroid that
+ *       lies inside that building's polygon, so a snapped site never lands in
+ *       a courtyard void or mid-road; a point with no such candidate in
+ *       budget keeps its raw position (snapping is best-effort — see
+ *       {@link #plan(long, long, long, long, List, List, Params)}).</li>
  * </ul>
  *
  * <p>Config keys (per-mille integers to stay int-only):</p>
@@ -128,7 +135,7 @@ public class BtsGridPlanner {
 
   /** A planned placement: grid geometry plus the snapped site points. */
   public static final class Plan {
-    /** Grid columns. */
+    /** Grid columns (= the widest row's cell count). */
     public final int cols;
     /** Grid rows. */
     public final int rows;
@@ -142,7 +149,11 @@ public class BtsGridPlanner {
     public final long y0;
     /** Coverage radius (mm). */
     public final int radius;
-    /** Unsnapped cell-centre points, row-major ({@code [x, y]} pairs). */
+    /**
+     * Unsnapped cell-centre points, row-major ({@code [x, y]} pairs); always
+     * exactly the target count. Rows may be shorter than {@link #cols} and are
+     * centred within the map width.
+     */
     public final List<long[]> rawPoints;
     /** Final sites after snap, same order ({@code [x, y]} pairs). */
     public final List<long[]> snappedPoints;
@@ -214,6 +225,16 @@ public class BtsGridPlanner {
    * perimeter, so concave buildings (U-shaped, L-shaped) are handled
    * correctly.
    *
+   * <p>The plan always holds exactly
+   * {@link #targetSiteCount(long, long, Params)} points — the configured
+   * [minSites, maxSites] clamp is enforced on the emitted count, not only on
+   * the grid shape — and their bounding box is centred within the map box to
+   * within one cell in each axis.</p>
+   *
+   * <p>Snapping is best-effort: a candidate centroid that fails containment is
+   * skipped and the raw grid point is kept, so a site may legitimately end up
+   * off a building when no valid candidate is in budget.</p>
+   *
    * @param minX      Model-space minimum X (mm).
    * @param minY      Model-space minimum Y (mm).
    * @param maxX      Model-space maximum X (mm).
@@ -245,13 +266,26 @@ public class BtsGridPlanner {
     int radius = coverageRadius(dx, dy);
     long snapMax = Math.max(1, Math.min(dx, dy) / 1000L * params.snapMaxMilli);
 
-    // Emit exactly `target` sites: quota ensures the [minSites,maxSites] clamp
-    // is never bypassed by shape rounding (gridShape rounds cols and rows
-    // independently, so cols*rows can exceed target on non-square maps).
+    // Distribute exactly `target` sites over `rows` rows: the first
+    // (target % rows) rows carry one extra cell, so the count is exact whether
+    // the rounded shape undershoots or overshoots the target (gridShape's ceil
+    // can cover more cells than the target needs) and the [minSites, maxSites]
+    // clamp is never bypassed by rounding. Rows holding fewer cells are
+    // centred by rowInset, so their spare cells are split between both margins;
+    // baking the first `target` cells row-major instead dumped the whole
+    // remainder on one side (a 100:1 map left 724 km vs 31 km of margin).
     List<long[]> raw = new ArrayList<>(target);
-    for (int row = 0, emitted = 0; row < rows && emitted < target; row++) {
-      for (int col = 0; col < cols && emitted < target; col++, emitted++) {
-        raw.add(new long[] {x0 + col * dx, y0 + row * dy});
+    int cellsPerRow = target / rows;
+    int fullRows = target % rows;
+    for (int row = 0; row < rows; row++) {
+      int cells = cellsPerRow + (row < fullRows ? 1 : 0);
+      if (cells <= 0) {
+        continue;
+      }
+      long y = y0 + row * dy;
+      long rowInset = (cols - cells) * dx / 2;
+      for (int col = 0; col < cells; col++) {
+        raw.add(new long[] {x0 + rowInset + col * dx, y});
       }
     }
     List<long[]> snapped = snapToBuildingsWithContainment(raw, centroids,
@@ -288,16 +322,7 @@ public class BtsGridPlanner {
       if (edges == null || edges.isEmpty()) {
         continue;
       }
-      long sx = 0;
-      long sy = 0;
-      int n = 0;
-      for (Edge edge : edges) {
-        sx += edge.getStartX() + edge.getEndX();
-        sy += edge.getStartY() + edge.getEndY();
-        n += 2;
-      }
-      long[] centroid = new long[] {sx / n, sy / n};
-      centroids.add(centroid);
+      centroids.add(centroidOf(b));
       polygons.add(buildingPolygon(b));
     }
     return new Pair<>(centroids, polygons);
@@ -346,22 +371,29 @@ public class BtsGridPlanner {
   }
 
   /**
-   * Grid shape approximating the target count at the map aspect ratio:
-   * {@code cols = max(1, round(sqrt(N * w/h)))}, {@code rows = max(1,
-   * round(N / cols))} so {@code cols * rows} lands near the target while
-   * cells stay close to square.
+   * Grid shape for the target count at the map aspect ratio:
+   * {@code rows = clamp(round(sqrt(N * h / w)), 1, N)},
+   * {@code cols = ceil(N / rows)}, so {@code cols * rows >= N} while cells
+   * stay as close to square as the aspect ratio allows. The column count is
+   * rounded <em>up</em> on purpose: rounding both axes independently
+   * undershoots whenever the target is not a grid-friendly number (N=10 on a
+   * square map produced 3x3 = 9 cells), and {@link #plan} needs the shape to
+   * cover the target so every target site has a cell to live in. Rows are
+   * capped at {@code N} so a needle-shaped map still spreads its sites over
+   * the full height.
    *
    * @param target The desired site count (&gt;= 1).
    * @param width  Map box width (mm).
    * @param height Map box height (mm).
-   * @return {@code {cols, rows}}.
+   * @return {@code {cols, rows}} with {@code cols * rows >= max(1, target)}
+   *         and {@code rows <= max(1, target)}.
    */
   public static int[] gridShape(int target, long width, long height) {
     int count = Math.max(1, target);
-    double aspect = (double) width / height;
-    int cols = (int) Math.round(Math.sqrt(count * aspect));
-    cols = Math.max(1, cols);
-    int rows = Math.max(1, (int) Math.round((double) count / cols));
+    double aspect = height > 0 ? (double) width / height : 1.0;
+    int rows = (int) Math.round(Math.sqrt(count / aspect));
+    rows = Math.max(1, Math.min(rows, count));
+    int cols = Math.max(1, (count + rows - 1) / rows);
     return new int[] {cols, rows};
   }
 
@@ -385,34 +417,36 @@ public class BtsGridPlanner {
 
   /**
    * Centroids of all building-type areas (average of edge endpoints — a
-   * good stand-in centre for RCRS block polygons).
+   * good stand-in centre for RCRS block polygons). Delegates to
+   * {@link #buildingCentroidsAndPolygons(StandardWorldModel)} so the centroid
+   * math exists once: the lists this method and that one return are aligned by
+   * construction rather than by two copies of the same skip logic.
    *
    * @param world The world model.
-   * @return Centroids as {@code [x, y]} arrays in model millimetres.
+   * @return Centroids as {@code [x, y]} arrays in model millimetres; buildings
+   *         with no edges are omitted.
    */
   public static List<long[]> buildingCentroids(StandardWorldModel world) {
-    List<long[]> result = new ArrayList<>();
-    for (StandardEntity e : world.getEntitiesOfType(StandardEntityURN.BUILDING)) {
-      if (!(e instanceof rescuecore2.standard.entities.Building)) {
-        continue;
-      }
-      rescuecore2.standard.entities.Building b =
-          (rescuecore2.standard.entities.Building) e;
-      List<Edge> edges = b.getEdges();
-      if (edges == null || edges.isEmpty()) {
-        continue;
-      }
-      long sx = 0;
-      long sy = 0;
-      int n = 0;
-      for (Edge edge : edges) {
-        sx += edge.getStartX() + edge.getEndX();
-        sy += edge.getStartY() + edge.getEndY();
-        n += 2;
-      }
-      result.add(new long[] {sx / n, sy / n});
+    return buildingCentroidsAndPolygons(world).first();
+  }
+
+  /**
+   * Centroid of one building: the average of its edge endpoints.
+   *
+   * @param building A building with at least one edge.
+   * @return The centroid as {@code [x, y]} in model millimetres.
+   */
+  private static long[] centroidOf(rescuecore2.standard.entities.Building building) {
+    List<Edge> edges = building.getEdges();
+    long sx = 0;
+    long sy = 0;
+    int n = 0;
+    for (Edge edge : edges) {
+      sx += edge.getStartX() + edge.getEndX();
+      sy += edge.getStartY() + edge.getEndY();
+      n += 2;
     }
-    return result;
+    return new long[] {sx / n, sy / n};
   }
 
   /**
