@@ -151,17 +151,25 @@ grid points landed on roads as often as on blocks. When a telecom config sets
 from the world model at kernel connect time by `telecom.BtsGridPlanner`:
 
 - site count `N = round(density x area)`, clamped to `[min-sites, max-sites]`
-  — counts now scale with city size;
-- grid shape from the map aspect ratio, cell-centred (`x0 = dx/2`) so margins
-  are symmetric by construction;
+  — counts now scale with city size, and the clamp holds on the *emitted*
+  count, not only on the grid shape;
+- grid shape from the map aspect ratio, sized to **cover** `N` cells
+  (`rows = round(sqrt(N x h/w))`, `cols = ceil(N / rows)`), so cells stay
+  near-square while every one of the `N` sites has a cell to live in;
+- exactly `N` cell-centre sites, offset by the map origin (`x0 = minX + dx/2`,
+  `y0 = minY + dy/2`): the first `N % rows` rows carry one extra cell and
+  shorter rows are centred, so margins are equal within one cell on each axis;
 - coverage radius `= 0.75 x cell-diagonal/2`, clamped to `[50 m, 500 m]`;
 - each grid point snaps to the nearest unused **building centroid** within
-  `0.35 x min(dx, dy)` — sites sit inside blocks, not on roads.
+  `0.35 x min(dx, dy)` *that passes a point-in-polygon test against that
+  building's perimeter* — sites sit inside blocks, never on roads or in the
+  courtyard void of a U- or L-shaped block. Snapping is best-effort: a point
+  with no valid candidate in budget keeps its raw grid position.
 
 Tuning keys: `telecom.bts.sites-per-km2-milli` (default 8000 = 8/km2),
 `telecom.bts.min-sites` / `telecom.bts.max-sites` (6 / 48),
 `telecom.bts.snap-max-milli` (350). The chosen geometry is logged at connect
-(`planned BTS placement: ...`). Guarded by `BtsGridPlannerTest` (8 unit tests)
+(`planned BTS placement: ...`). Guarded by `BtsGridPlannerTest` (15 unit tests)
 plus the `BtsPlacementConfigTest` map-bounds checks for explicit placements.
 
 ### Real maps: kobe and berlin (T7)
@@ -199,8 +207,15 @@ curl -s localhost:8082/telecom/coverage
 
 Shipped placement (verified by live telemetry): test map keeps its explicit
 3x3 grid at `55000x47000mm` spacing from `27500,23500` (deterministic doc
-example); kobe and berlin run the **planner** — kobe: 3x2, radius ~90 m,
-6/6 sites snapped to buildings; berlin: 6x5, radius ~184 m, 28/30 snapped.
+example); kobe and berlin run the **planner**, logging at connect:
+
+```
+kobe:   3x2 grid, dx=156173 dy=182040, radius=89944 mm, 6 sites (6 snapped to buildings)
+berlin: 6x5 grid, dx=364580 dy=327458, radius=183768 mm, 29 sites (27 snapped to buildings)
+```
+
+(radii ≈ 90 m / ≈ 184 m; berlin emits 29 — the `max-sites`-bounded target for
+its ~3.6 km2 — of which 27 find a building in snap range.)
 To pin a fixed layout on a real map, set `telecom.bts.grid` (model mm,
 0-based — see the units note above; the old hand-tuned values are kept as
 comments in each `kernel-telecom.cfg`).
