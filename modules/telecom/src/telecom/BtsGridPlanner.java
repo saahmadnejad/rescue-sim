@@ -74,6 +74,8 @@ public class BtsGridPlanner {
   public static final String MAX_SITES_KEY = "telecom.bts.max-sites";
   /** Config key: snap budget in milli-fraction of min(dx, dy). */
   public static final String SNAP_MAX_KEY = "telecom.bts.snap-max-milli";
+  /** Config key: explicit coverage radius override in mm (optional, {@code <= 0} to derive). */
+  public static final String RADIUS_KEY = "telecom.bts.radius";
 
   /** Default density: 8 sites/km2, expressed in per-mille. */
   public static final int DEFAULT_SITES_PER_KM2_MILLI = 8000;
@@ -101,9 +103,11 @@ public class BtsGridPlanner {
     public final int maxSites;
     /** Snap budget in milli-fraction of min(dx, dy). */
     public final int snapMaxMilli;
+    /** Explicit radius override in mm (&lt;= 0 means derive from cell geometry). */
+    public final int explicitRadiusMm;
 
     /**
-     * Parameter set.
+     * Parameter set with geometry-derived radius.
      *
      * @param sitesPerKm2Milli Target density in milli-sites/km2.
      * @param minSites Lower clamp on site count.
@@ -112,10 +116,25 @@ public class BtsGridPlanner {
      */
     public Params(int sitesPerKm2Milli, int minSites, int maxSites,
                   int snapMaxMilli) {
+      this(sitesPerKm2Milli, minSites, maxSites, snapMaxMilli, 0);
+    }
+
+    /**
+     * Parameter set with optional explicit radius override.
+     *
+     * @param sitesPerKm2Milli Target density in milli-sites/km2.
+     * @param minSites Lower clamp on site count.
+     * @param maxSites Upper clamp on site count.
+     * @param snapMaxMilli Snap budget in milli-fraction of min(dx, dy).
+     * @param explicitRadiusMm Explicit radius override in mm (&lt;= 0 to derive).
+     */
+    public Params(int sitesPerKm2Milli, int minSites, int maxSites,
+                  int snapMaxMilli, int explicitRadiusMm) {
       this.sitesPerKm2Milli = sitesPerKm2Milli;
       this.minSites = minSites;
       this.maxSites = maxSites;
       this.snapMaxMilli = snapMaxMilli;
+      this.explicitRadiusMm = explicitRadiusMm;
     }
 
     /**
@@ -129,7 +148,8 @@ public class BtsGridPlanner {
           config.getIntValue(SITES_PER_KM2_KEY, DEFAULT_SITES_PER_KM2_MILLI),
           config.getIntValue(MIN_SITES_KEY, DEFAULT_MIN_SITES),
           config.getIntValue(MAX_SITES_KEY, DEFAULT_MAX_SITES),
-          config.getIntValue(SNAP_MAX_KEY, DEFAULT_SNAP_MAX_MILLI));
+          config.getIntValue(SNAP_MAX_KEY, DEFAULT_SNAP_MAX_MILLI),
+          config.getIntValue(RADIUS_KEY, 0));
     }
   }
 
@@ -182,6 +202,11 @@ public class BtsGridPlanner {
           + "," + radius;
     }
 
+    /**
+     * Returns a human-readable summary of this grid plan.
+     *
+     * @return summary description with dimensions, radius, and snap count
+     */
     @Override
     public String toString() {
       int snapped = 0;
@@ -263,8 +288,10 @@ public class BtsGridPlanner {
     long dy = height / rows;
     long x0 = minX + dx / 2;  // cell-centred, shifted by map origin
     long y0 = minY + dy / 2;  // cell-centred, shifted by map origin
-    int radius = coverageRadius(dx, dy);
-    long snapMax = Math.max(1, Math.min(dx, dy) / 1000L * params.snapMaxMilli);
+    int radius = params.explicitRadiusMm > 0
+        ? params.explicitRadiusMm
+        : coverageRadius(dx, dy);
+    long snapMax = Math.max(1L, Math.min(dx, dy) * (long) params.snapMaxMilli / 1000L);
 
     // Distribute exactly `target` sites over `rows` rows: the first
     // (target % rows) rows carry one extra cell, so the count is exact whether
@@ -326,32 +353,6 @@ public class BtsGridPlanner {
       polygons.add(buildingPolygon(b));
     }
     return new Pair<>(centroids, polygons);
-  }
-
-  /**
-   * Building polygons for every building in the world model, in the same
-   * order as {@link #buildingCentroids(StandardWorldModel)}.
-   *
-   * @param world The world model.
-   * @return One polygon per building (empty list for buildings with no edges).
-   * @deprecated Use {@link #buildingCentroidsAndPolygons(StandardWorldModel)}
-   *             when centroids and polygons must stay aligned; this method
-   *             adds empty-list sentinels for skipped entities, which diverges
-   *             from {@link #buildingCentroids(StandardWorldModel)}.
-   */
-  @Deprecated
-  public static List<List<Point2D>> buildingPolygons(StandardWorldModel world) {
-    List<List<Point2D>> result = new ArrayList<>();
-    for (StandardEntity e : world.getEntitiesOfType(StandardEntityURN.BUILDING)) {
-      if (!(e instanceof rescuecore2.standard.entities.Building)) {
-        result.add(List.of());
-        continue;
-      }
-      rescuecore2.standard.entities.Building b =
-          (rescuecore2.standard.entities.Building) e;
-      result.add(buildingPolygon(b));
-    }
-    return result;
   }
 
   /**

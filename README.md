@@ -159,14 +159,15 @@ from the world model at kernel connect time by `telecom.BtsGridPlanner`:
 - exactly `N` cell-centre sites, offset by the map origin (`x0 = minX + dx/2`,
   `y0 = minY + dy/2`): the first `N % rows` rows carry one extra cell and
   shorter rows are centred, so margins are equal within one cell on each axis;
-- coverage radius `= 0.75 x cell-diagonal/2`, clamped to `[50 m, 500 m]`;
+- coverage radius `= 0.75 x cell-diagonal/2`, clamped to `[50 m, 500 m]`, or explicitly pinned via `telecom.bts.radius` (in mm);
 - each grid point snaps to the nearest unused **building centroid** within
   `0.35 x min(dx, dy)` *that passes a point-in-polygon test against that
   building's perimeter* — sites sit inside blocks, never on roads or in the
   courtyard void of a U- or L-shaped block. Snapping is best-effort: a point
   with no valid candidate in budget keeps its raw grid position.
 
-Tuning keys: `telecom.bts.sites-per-km2-milli` (default 8000 = 8/km2),
+Tuning keys: `telecom.bts.radius` (optional explicit radius in mm, e.g. 50000 for 50m microcells),
+`telecom.bts.sites-per-km2-milli` (default 8000 = 8/km2),
 `telecom.bts.min-sites` / `telecom.bts.max-sites` (6 / 48),
 `telecom.bts.snap-max-milli` (350). The chosen geometry is logged at connect
 (`planned BTS placement: ...`). Guarded by `BtsGridPlannerTest` (15 unit tests)

@@ -1,0 +1,318 @@
+package telecom.agent;
+
+import java.nio.charset.StandardCharsets;
+
+import rescuecore2.worldmodel.EntityID;
+
+/**
+ * Standard radio communication protocol for telecom multi-agent disaster recovery.
+ * Provides message encoding and decoding across radio channels (gated by BTS cellular coverage)
+ * and voice channels (direct acoustic proximity).
+ */
+public final class AgentComms {
+
+  /** Radio channel index in comms.cfg (BTS-gated). */
+  public static final int RADIO_CHANNEL = 1;
+
+  /** Voice channel index in comms.cfg (acoustic proximity). */
+  public static final int VOICE_CHANNEL = 0;
+
+  public static final String PREFIX_BLOCKADE = "BLK:";
+  public static final String PREFIX_CLEARED = "CLR:";
+  public static final String PREFIX_CIVILIAN = "CIV:";
+  public static final String PREFIX_FIRE = "FIR:";
+  public static final String PREFIX_RESTORE_BLOCKED = "RST_BLK:";
+  public static final String PREFIX_CLAIM_CIVILIAN = "CLM_CIV:";
+  public static final String PREFIX_CLAIM_FIRE = "CLM_FIR:";
+
+  private AgentComms() {
+  }
+
+  /**
+   * Discovered or reported civilian details.
+   */
+  public static final class CivilianReport {
+    private final EntityID civilianId;
+    private final EntityID locationId;
+    private final int hp;
+    private final int buriedness;
+
+    public CivilianReport(EntityID civilianId, EntityID locationId, int hp, int buriedness) {
+      this.civilianId = civilianId;
+      this.locationId = locationId;
+      this.hp = hp;
+      this.buriedness = buriedness;
+    }
+
+    public EntityID getCivilianId() {
+      return civilianId;
+    }
+
+    public EntityID getLocationId() {
+      return locationId;
+    }
+
+    public int getHP() {
+      return hp;
+    }
+
+    public int getBuriedness() {
+      return buriedness;
+    }
+  }
+
+  /**
+   * Discovered or reported burning building details.
+   */
+  public static final class FireReport {
+    private final EntityID buildingId;
+    private final int fieryness;
+
+    public FireReport(EntityID buildingId, int fieryness) {
+      this.buildingId = buildingId;
+      this.fieryness = fieryness;
+    }
+
+    public EntityID getBuildingId() {
+      return buildingId;
+    }
+
+    public int getFieryness() {
+      return fieryness;
+    }
+  }
+
+  /**
+   * Restoration brigade road blockage alert details.
+   */
+  public static final class RestoreBlockedReport {
+    private final EntityID roadId;
+    private final EntityID btsId;
+
+    public RestoreBlockedReport(EntityID roadId, EntityID btsId) {
+      this.roadId = roadId;
+      this.btsId = btsId;
+    }
+
+    public EntityID getRoadId() {
+      return roadId;
+    }
+
+    public EntityID getBtsId() {
+      return btsId;
+    }
+  }
+
+  /**
+   * Task claim report (civilian or fire claimed by an agent).
+   */
+  public static final class ClaimReport {
+    private final EntityID targetId;
+    private final EntityID agentId;
+
+    public ClaimReport(EntityID targetId, EntityID agentId) {
+      this.targetId = targetId;
+      this.agentId = agentId;
+    }
+
+    public EntityID getTargetId() {
+      return targetId;
+    }
+
+    public EntityID getAgentId() {
+      return agentId;
+    }
+  }
+
+  /**
+   * Encode a discovered road blockade notification.
+   *
+   * @param roadId Blocked road entity ID.
+   * @return Byte payload.
+   */
+  public static byte[] encodeBlockade(EntityID roadId) {
+    return (PREFIX_BLOCKADE + roadId.getValue()).getBytes(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * Encode a cleared road notification.
+   *
+   * @param roadId Cleared road entity ID.
+   * @return Byte payload.
+   */
+  public static byte[] encodeCleared(EntityID roadId) {
+    return (PREFIX_CLEARED + roadId.getValue()).getBytes(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * Encode an urgent telecom restoration road blockage alert.
+   *
+   * @param roadId Blocked road entity ID.
+   * @param btsId  Target BTS entity ID being restored.
+   * @return Byte payload.
+   */
+  public static byte[] encodeRestoreBlocked(EntityID roadId, EntityID btsId) {
+    int bId = (btsId != null) ? btsId.getValue() : -1;
+    return (PREFIX_RESTORE_BLOCKED + roadId.getValue() + ":" + bId).getBytes(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * Encode an injured or buried civilian notification.
+   *
+   * @param civilianId Civilian entity ID.
+   * @param locationId Building or area entity ID.
+   * @param hp         Health points.
+   * @param buriedness Buriedness level.
+   * @return Byte payload.
+   */
+  public static byte[] encodeCivilian(EntityID civilianId, EntityID locationId, int hp, int buriedness) {
+    return (PREFIX_CIVILIAN + civilianId.getValue() + ":" + locationId.getValue()
+        + ":" + hp + ":" + buriedness).getBytes(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * Encode a burning building notification.
+   *
+   * @param buildingId Building entity ID.
+   * @param fieryness  Fieryness level (1 = minor, 2 = medium, 3 = inferno).
+   * @return Byte payload.
+   */
+  public static byte[] encodeFire(EntityID buildingId, int fieryness) {
+    return (PREFIX_FIRE + buildingId.getValue() + ":" + fieryness).getBytes(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * Encode an ambulance claim on a civilian.
+   *
+   * @param civilianId  Civilian entity ID.
+   * @param ambulanceId Ambulance entity ID.
+   * @return Byte payload.
+   */
+  public static byte[] encodeClaimCivilian(EntityID civilianId, EntityID ambulanceId) {
+    return (PREFIX_CLAIM_CIVILIAN + civilianId.getValue() + ":" + ambulanceId.getValue())
+        .getBytes(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * Encode a fire brigade claim on a burning building.
+   *
+   * @param buildingId    Building entity ID.
+   * @param fireBrigadeId Fire brigade entity ID.
+   * @return Byte payload.
+   */
+  public static byte[] encodeClaimFire(EntityID buildingId, EntityID fireBrigadeId) {
+    return (PREFIX_CLAIM_FIRE + buildingId.getValue() + ":" + fireBrigadeId.getValue())
+        .getBytes(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * Parse a road ID from a BLOCKADE or CLEARED payload.
+   *
+   * @param message Message string.
+   * @param prefix  Expected prefix (PREFIX_BLOCKADE or PREFIX_CLEARED).
+   * @return EntityID of road, or null if malformed.
+   */
+  public static EntityID parseRoadId(String message, String prefix) {
+    if (message != null && message.startsWith(prefix)) {
+      try {
+        int id = Integer.parseInt(message.substring(prefix.length()).trim());
+        return new EntityID(id);
+      } catch (NumberFormatException e) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Parse a civilian notification.
+   *
+   * @param message Message string.
+   * @return CivilianReport, or null if malformed.
+   */
+  public static CivilianReport parseCivilian(String message) {
+    if (message != null && message.startsWith(PREFIX_CIVILIAN)) {
+      String[] parts = message.substring(PREFIX_CIVILIAN.length()).split(":");
+      if (parts.length >= 4) {
+        try {
+          EntityID civId = new EntityID(Integer.parseInt(parts[0].trim()));
+          EntityID locId = new EntityID(Integer.parseInt(parts[1].trim()));
+          int hp = Integer.parseInt(parts[2].trim());
+          int buried = Integer.parseInt(parts[3].trim());
+          return new CivilianReport(civId, locId, hp, buried);
+        } catch (NumberFormatException e) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Parse a fire notification.
+   *
+   * @param message Message string.
+   * @return FireReport, or null if malformed.
+   */
+  public static FireReport parseFire(String message) {
+    if (message != null && message.startsWith(PREFIX_FIRE)) {
+      String[] parts = message.substring(PREFIX_FIRE.length()).split(":");
+      if (parts.length >= 2) {
+        try {
+          EntityID bId = new EntityID(Integer.parseInt(parts[0].trim()));
+          int fieryness = Integer.parseInt(parts[1].trim());
+          return new FireReport(bId, fieryness);
+        } catch (NumberFormatException e) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Parse a restoration brigade road blockage alert.
+   *
+   * @param message Message string.
+   * @return RestoreBlockedReport, or null if malformed.
+   */
+  public static RestoreBlockedReport parseRestoreBlocked(String message) {
+    if (message != null && message.startsWith(PREFIX_RESTORE_BLOCKED)) {
+      String[] parts = message.substring(PREFIX_RESTORE_BLOCKED.length()).split(":");
+      if (parts.length >= 2) {
+        try {
+          EntityID roadId = new EntityID(Integer.parseInt(parts[0].trim()));
+          int bIdVal = Integer.parseInt(parts[1].trim());
+          EntityID btsId = (bIdVal >= 0) ? new EntityID(bIdVal) : null;
+          return new RestoreBlockedReport(roadId, btsId);
+        } catch (NumberFormatException e) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Parse a claim notification.
+   *
+   * @param message Message string.
+   * @param prefix  PREFIX_CLAIM_CIVILIAN or PREFIX_CLAIM_FIRE.
+   * @return ClaimReport, or null if malformed.
+   */
+  public static ClaimReport parseClaim(String message, String prefix) {
+    if (message != null && message.startsWith(prefix)) {
+      String[] parts = message.substring(prefix.length()).split(":");
+      if (parts.length >= 2) {
+        try {
+          EntityID targetId = new EntityID(Integer.parseInt(parts[0].trim()));
+          EntityID agentId = new EntityID(Integer.parseInt(parts[1].trim()));
+          return new ClaimReport(targetId, agentId);
+        } catch (NumberFormatException e) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+}

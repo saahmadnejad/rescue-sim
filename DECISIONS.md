@@ -115,15 +115,17 @@ registry fresh each timestep.
   telecom.http.port gate (0=off). **v1.0 released here (tag v1.0).**
   → v1.1 TMF-shape (blocked on telecom-oss O1).
 - **M7 T7 viewer** [DONE 2026-09-14, branch feat/telecom-t7-bts-planner]: TelecomViewerComponent
-  (StandardViewer subclass) + BTSLayer/COWLayer/TelecomCoverageLayer,
+  (StandardViewer subclass) + BTSLayer (rendering both fixed BTS and COW entities)
+  with live coverage statistics rendered in the viewer header readout,
   launched via `kernel.viewers.auto +: telecom.view.TelecomViewerComponent`
   (kernel-telecom.cfg:39; append semantics per kernel-inline.cfg:68).
-  BTS/COW/coverage render from the TelecomRegistry singleton read at
-  each timestep; disc visibility follows BTS.isServing(). Layers toggle
-  via the viewer right-click menu and `viewer.standard.<Layer>.visible`
+  BTS and COW entities render from the TelecomRegistry singleton read at
+  each timestep; disc visibility follows BTS.isServing() (serving BTS draws
+  coverage disc + tower marker; down/damaged BTS draws tower marker only).
+  Layers toggle via the viewer right-click menu and `viewer.standard.<Layer>.visible`
   (StandardViewLayer.java:234-238). Zero kernel/standard/rescuecore2
   edits; classic scenarios unaffected (SampleViewer only, per
-  kernel-inline.cfg:68). Verified by unit tests (telecom.view, 6 tests)
+  kernel-inline.cfg:68). Verified by unit tests (telecom.view)
   + smoke run (telecom.jar rebuilt, TelecomViewerComponent in merged
   `kernel.viewers.auto`, map loaded); on-screen check is manual (GUI).
 - **M8 T7 placement review — BtsGridPlanner** [DONE 2026-09-17, this
@@ -138,17 +140,42 @@ registry fresh each timestep.
   rows)) emitting exactly N cell-centre sites (first N % rows carry one
   extra cell, shorter rows centred, so margins match within one cell and
   the clamp binds the emitted count, not just the shape),
-  radius = 0.75 x cell-diagonal/2 clamped [50 m, 500 m], each point
+  radius = 0.75 x cell-diagonal/2 clamped [50 m, 500 m] (overridable via
+  `telecom.bts.radius` in mm), each point
   snapped to the nearest unused building centroid within 0.35 x
   min(dx, dy) that passes a point-in-polygon test against that building's
   perimeter (concave blocks: a courtyard centroid is skipped and the raw
   grid point kept — snapping is best-effort). Live-verified: kobe 3x2
-  r~90m 6/6 snapped; berlin 6x5 r~184m 29 sites, 27 snapped. Precedence
+  r~90m (or r=50m explicit microcell configured) 6/6 snapped; berlin 6x5 r~184m 29 sites, 27 snapped. Precedence
   list > grid > planner keeps every prior config valid; guarded by
   BtsGridPlannerTest (15 tests) + adapted BtsPlacementConfigTest.
   Gotcha: `jars/` is the launcher's runtime classpath — re-run
   `./gradlew telecomJar` after telecom code changes or the kernel
   silently runs stale classes (symptom: 0 BTSs, no planner log).
+- **M9 Multi-Agent Emergency Coordination & Standard Restoration Agent** [User
+  decision 2026-11-19, this branch]:
+  - Autonomous multi-agent emergency response team (`telecom.agent.*`:
+    `TelecomPoliceForce`, `TelecomAmbulanceTeam`, `TelecomFireBrigade`,
+    `TelecomCentre`) deployed in telecom scenarios.
+  - Restoration agents implemented as authentic standard RCRS agents without
+    server code manipulation: `TelecomRestorationAgent extends StandardAgent<Civilian>`,
+    connecting 4 instances to the scenario via
+    `kernel.agents.auto +: telecom.agent.TelecomRestorationAgent*4` (zero kernel/standard
+    edits, DECISIONS.md Hard constraints 1 & 3). Agents perceive the world via standard
+    `KASense`, navigate roads via `traffic3`, discover blockades via fog-of-war, request
+    emergency police clearance via radio/voice comms, and deploy COWs and repair towers
+    when on site.
+  - Cross-discipline communications protocol (`AgentComms`): radio channel 1
+    (BTS coverage required) and acoustic voice channel 0 (30m radius, rate-limited
+    to 1 msg/tick per agent to avoid kernel rate warnings). Inter-agent messages:
+    `CIV:`, `FIR:`, `BLK:`, `CLR:`, `RST_BLK:`, `CLM_CIV:`, `CLM_FIR:`.
+  - Blockade avoidance & road routing (`RoadRouter`): All non-police agents navigate
+    strictly on the road network, avoiding rubble blockades and never entering blocked
+    roads. When paths are blocked, agents wait and broadcast clearance requests
+    rather than falling back to unconstrained search into rubble. Police agents prioritize
+    clearing roads obstructing restoration crews (`priorityRestorationRoads`).
+  - Pure protocol compliance: Police forces navigate based on received communication
+    messages (`RST_BLK:`) rather than querying server singletons directly.
 
 ## Verified plugin seams (file:line, commit b5d8ff3 baseline)
 

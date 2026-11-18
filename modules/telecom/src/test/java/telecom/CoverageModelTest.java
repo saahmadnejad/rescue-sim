@@ -2,7 +2,10 @@ package telecom;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
@@ -17,8 +20,7 @@ import telecom.entities.BTS.State;
 import telecom.entities.TelecomEntityFactory;
 
 /**
- * Unit tests for the radial coverage model. Given-When-Then style per jade
- * conventions (AGENTS.md in the jade fork governs).
+ * Unit tests for the radial coverage model. Given-When-Then test style.
  */
 class CoverageModelTest {
 
@@ -116,6 +118,45 @@ class CoverageModelTest {
   void Given_NoCivilians_When_PopulationCoverageFraction_Then_One() {
     // --- Act / Assert ---
     assertEquals(1.0, new CoverageModel().populationCoverageFraction(java.util.List.of(), new StandardWorldModel()), 1e-9);
+  }
+
+  @Test
+  void Given_TwoBTSs_When_AgentMovesFromOneToOther_Then_HandoverToNearestServingBTS() {
+    // --- Arrange ---
+    BTS bts1 = servingBTS(1, 0, 0, 100);
+    BTS bts2 = servingBTS(2, 200, 0, 100);
+    List<BTS> sites = List.of(bts1, bts2);
+    CoverageModel model = new CoverageModel();
+
+    // --- Act & Assert: At (20, 0), closer to BTS 1 ---
+    BTS served1 = model.servingBTS(sites, 20, 0);
+    assertEquals(bts1, served1, "Agent near BTS 1 must attach to BTS 1");
+
+    // --- Act & Assert: Agent moves to (180, 0), closer to BTS 2 ---
+    BTS served2 = model.servingBTS(sites, 180, 0);
+    assertEquals(bts2, served2, "Agent moving to BTS 2 must handover to BTS 2");
+
+    // --- Act & Assert: Agent moves to (1000, 1000), dead zone (no coverage) ---
+    BTS servedNone = model.servingBTS(sites, 1000, 1000);
+    assertNull(servedNone,
+        "Agent outside all BTS radii must have null serving BTS (dead zone)");
+  }
+
+  @Test
+  void Given_ServingBTSCorrupted_When_AgentUnderIt_Then_LosesConnection() {
+    // --- Arrange ---
+    BTS bts = servingBTS(1, 0, 0, 100);
+    CoverageModel model = new CoverageModel();
+
+    // Under healthy BTS
+    assertEquals(bts, model.servingBTS(List.of(bts), 20, 0));
+
+    // --- Act: BTS gets damaged/corrupted ---
+    bts.setState(State.DAMAGED);
+
+    // --- Assert: No longer serving ---
+    assertNull(model.servingBTS(List.of(bts), 20, 0),
+        "Corrupted BTS cannot serve agents; connection must drop");
   }
 
   private BTS servingBTS(int id, int x, int y, int radius) {

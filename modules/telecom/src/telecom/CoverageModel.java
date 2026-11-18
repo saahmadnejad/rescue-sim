@@ -19,6 +19,55 @@ import telecom.entities.BTS;
 public class CoverageModel {
 
   /**
+   * Finds the primary serving BTS for an entity in the world model.
+   * If covered by multiple overlapping BTSs, selects the nearest one.
+   *
+   * @param btsList The candidate BTS entities.
+   * @param world   The world model.
+   * @param entity  The entity to locate.
+   * @return The serving BTS, or {@code null} if out of coverage.
+   */
+  public BTS servingBTS(Collection<BTS> btsList, StandardWorldModel world, StandardEntity entity) {
+    Pair<Integer, Integer> loc = entity.getLocation(world);
+    if (loc == null) {
+      return null;
+    }
+    return servingBTS(btsList, loc.first(), loc.second());
+  }
+
+  /**
+   * Finds the primary serving BTS for a coordinate (x, y).
+   * Selects the nearest serving BTS within whose coverage radius the coordinate falls.
+   *
+   * @param btsList The candidate BTS entities.
+   * @param x       The X coordinate.
+   * @param y       The Y coordinate.
+   * @return The nearest serving BTS covering this coordinate, or {@code null} if out of coverage.
+   */
+  public BTS servingBTS(Collection<BTS> btsList, int x, int y) {
+    BTS nearest = null;
+    double minDistanceSq = Double.MAX_VALUE;
+    for (BTS bts : btsList) {
+      if (!bts.isServing()) {
+        continue;
+      }
+      Pair<Integer, Integer> loc = bts.getLocation(null);
+      if (loc == null) {
+        continue;
+      }
+      double dx = loc.first() - x;
+      double dy = loc.second() - y;
+      double distSq = dx * dx + dy * dy;
+      double radius = bts.getCoverageRadius();
+      if (distSq <= radius * radius && distSq < minDistanceSq) {
+        nearest = bts;
+        minDistanceSq = distSq;
+      }
+    }
+    return nearest;
+  }
+
+  /**
    * Whether an entity's location is covered by at least one serving BTS.
    *
    * @param btsList       The BTS entities to consider. Serving status is read
@@ -45,23 +94,7 @@ public class CoverageModel {
    * @return True if the point is within range of a serving BTS.
    */
   public boolean isCovered(Collection<BTS> btsList, int x, int y) {
-    for (BTS bts : btsList) {
-      if (!bts.isServing()) {
-        continue;
-      }
-      Pair<Integer, Integer> loc = bts.getLocation(null);
-      if (loc == null) {
-        continue;
-      }
-      double dx = loc.first() - x;
-      double dy = loc.second() - y;
-      double distSq = dx * dx + dy * dy;
-      double radius = bts.getCoverageRadius();
-      if (distSq <= radius * radius) {
-        return true;
-      }
-    }
-    return false;
+    return servingBTS(btsList, x, y) != null;
   }
 
   /**

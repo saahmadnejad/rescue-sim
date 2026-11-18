@@ -3,12 +3,17 @@ package telecom.brigade;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 import rescuecore2.config.Config;
 import rescuecore2.log.Logger;
+import rescuecore2.standard.entities.Area;
+import rescuecore2.standard.entities.Road;
+import rescuecore2.standard.entities.StandardEntity;
+import rescuecore2.standard.entities.StandardWorldModel;
 import rescuecore2.worldmodel.EntityID;
 import telecom.TelecomRegistry;
 import telecom.entities.BTS;
@@ -55,12 +60,16 @@ public class RestorationBrigade {
   private final Deque<WorkOrder> queue;
   private final List<ActiveJob> active;
 
+  private StandardWorldModel world;
   private int cowStock;
   private final int cowSetupSteps;
   private final int repairSteps;
   private final int refuelSteps;
   private final int refuelHours;
   private int nextEntityId = 1000000; // COW entity ids far above map ids
+  private int depotX;
+  private int depotY;
+  private boolean depotSet;
 
   /**
    * Construct the brigade from config.
@@ -99,6 +108,15 @@ public class RestorationBrigade {
   }
 
   /**
+   * Set the world model for road network navigation and blockade awareness.
+   *
+   * @param world The standard world model.
+   */
+  public void setWorldModel(StandardWorldModel world) {
+    this.world = world;
+  }
+
+  /**
    * Advance brigade work one timestep: start queued orders, progress
    * active jobs, complete finished ones.
    */
@@ -109,13 +127,95 @@ public class RestorationBrigade {
     }
     List<ActiveJob> finished = new ArrayList<>();
     for (ActiveJob job : active) {
-      job.remaining--;
-      if (job.remaining <= 0) {
-        finishOrder(job.order);
-        finished.add(job);
+      if (world != null && job.currentAreaId != null && job.targetAreaId != null) {
+        // Forget cleared roads so routes reopen when Police Forces clear rubble
+        job.knownBlockedRoads.removeIf(rId -> {
+          StandardEntity ent = world.getEntity(rId);
+          return ent instanceof Area && !RoadRouter.isRoadBlocked((Area) ent);
+        });
+
+        if (!job.currentAreaId.equals(job.targetAreaId)) {
+          // Navigating on road network based on current knowledge
+          List<EntityID> path = RoadRouter.findPath(world, job.currentAreaId,
+              job.targetAreaId, job.knownBlockedRoads);
+          if (path != null && path.size() > 1) {
+            EntityID nextId = path.get(1);
+            StandardEntity nextEntity = world.getEntity(nextId);
+            // Check if approaching next road encounters a physical blockade
+            if (nextEntity instanceof Area && RoadRouter.isRoadBlocked((Area) nextEntity)) {
+              // Fog of war: Unit approaches blockade and discovers it on-site
+              job.knownBlockedRoads.add(nextId);
+              job.blocked = true;
+              job.blockedRoadId = nextId;
+              Logger.info("Brigade: Unit " + job.order.getKind() + " approaching Road #"
+                  + nextId + " discovered an unexpected rubble blockade! Halting and awaiting clearance.");
+
+              // Check if an alternative detour is available around newly discovered blockade
+              List<EntityID> detour = RoadRouter.findPath(world, job.currentAreaId,
+                  job.targetAreaId, job.knownBlockedRoads);
+              if (detour != null && detour.size() > 1) {
+                EntityID detourNext = detour.get(1);
+                StandardEntity detourEntity = world.getEntity(detourNext);
+                if (detourEntity instanceof Area && !RoadRouter.isRoadBlocked((Area) detourEntity)) {
+                  job.currentAreaId = detourNext;
+                  job.currentX = ((Area) detourEntity).getX();
+                  job.currentY = ((Area) detourEntity).getY();
+                  job.blocked = false;
+                  job.blockedRoadId = null;
+                }
+              }
+            } else {
+              // Road is open, advance forward
+              job.currentAreaId = nextId;
+              if (nextEntity instanceof Area) {
+                job.currentX = ((Area) nextEntity).getX();
+                job.currentY = ((Area) nextEntity).getY();
+              }
+              job.blocked = false;
+              job.blockedRoadId = null;
+            }
+          } else {
+            // Blocked by known rubble / no open path
+            job.blocked = true;
+            Road obstructing = RoadRouter.findObstructingBlockade(world, job.currentAreaId, job.targetAreaId);
+            job.blockedRoadId = (obstructing != null) ? obstructing.getID() : null;
+          }
+        } else {
+          // Arrived on site at destination BTS
+          job.blocked = false;
+          job.blockedRoadId = null;
+          job.remaining--;
+          if (job.remaining <= 0) {
+            finishOrder(job.order);
+            finished.add(job);
+          }
+        }
+      } else {
+        // Fallback when world model is not provided (e.g. unit tests)
+        job.remaining--;
+        if (job.remaining <= 0) {
+          finishOrder(job.order);
+          finished.add(job);
+        }
       }
     }
     active.removeAll(finished);
+
+    // Synchronize restoration blocked roads with TelecomRegistry for Police Force prioritization
+    Set<EntityID> activeBlocked = new HashSet<>();
+    for (ActiveJob job : active) {
+      if (job.blocked && job.blockedRoadId != null) {
+        activeBlocked.add(job.blockedRoadId);
+      }
+    }
+    for (EntityID rId : registry.getRestorationBlockedRoads()) {
+      if (!activeBlocked.contains(rId)) {
+        registry.clearRestorationBlockedRoad(rId);
+      }
+    }
+    for (EntityID rId : activeBlocked) {
+      registry.reportRestorationBlockedRoad(rId);
+    }
   }
 
   /**
@@ -125,6 +225,36 @@ public class RestorationBrigade {
    */
   public int getWorkload() {
     return queue.size() + active.size();
+  }
+
+  /**
+   * Set the departure depot location for dispatched brigade units.
+   *
+   * @param x Depot X in mm.
+   * @param y Depot Y in mm.
+   */
+  public void setDepot(int x, int y) {
+    this.depotX = x;
+    this.depotY = y;
+    this.depotSet = true;
+  }
+
+  /**
+   * Snapshot of active dispatched restoration units currently en route or on-site.
+   *
+   * @return List of brigade units.
+   */
+  public List<BrigadeUnit> getActiveUnits() {
+    List<BrigadeUnit> units = new ArrayList<>(active.size());
+    int id = 1;
+    for (ActiveJob job : active) {
+      units.add(new BrigadeUnit(id++, job.order.getKind(), job.startX, job.startY,
+          job.currentX, job.currentY, job.currentAreaId,
+          job.order.getX(), job.order.getY(), job.targetAreaId,
+          job.totalDuration, job.remaining,
+          job.blocked, job.blockedRoadId));
+    }
+    return units;
   }
 
   /**
@@ -159,7 +289,34 @@ public class RestorationBrigade {
       }
       cowStock--;
     }
-    active.add(new ActiveJob(order, duration + delaySteps));
+    if (!depotSet && !registry.getAll().isEmpty()) {
+      BTS first = registry.getAll().get(0);
+      depotX = first.getX();
+      depotY = first.getY();
+      depotSet = true;
+    }
+    int sX = depotX;
+    int sY = depotY;
+    int curX = sX;
+    int curY = sY;
+    EntityID startAreaId = null;
+    EntityID targetAreaId = null;
+
+    if (world != null) {
+      Road startRoad = RoadRouter.findNearestRoad(world, sX, sY);
+      if (startRoad != null) {
+        startAreaId = startRoad.getID();
+        curX = startRoad.getX();
+        curY = startRoad.getY();
+      }
+      Road targetRoad = RoadRouter.findNearestRoad(world, order.getX(), order.getY());
+      if (targetRoad != null) {
+        targetAreaId = targetRoad.getID();
+      }
+    }
+
+    active.add(new ActiveJob(order, duration + delaySteps, sX, sY,
+        curX, curY, startAreaId, targetAreaId));
   }
 
   private void finishOrder(WorkOrder order) {
@@ -242,11 +399,32 @@ public class RestorationBrigade {
 
   private static final class ActiveJob {
     private final WorkOrder order;
+    private final int totalDuration;
+    private final int startX;
+    private final int startY;
+    private int currentX;
+    private int currentY;
+    private EntityID currentAreaId;
+    private final EntityID targetAreaId;
+    private final Set<EntityID> knownBlockedRoads;
+    private boolean blocked;
+    private EntityID blockedRoadId;
     private int remaining;
 
-    private ActiveJob(WorkOrder order, int remaining) {
+    private ActiveJob(WorkOrder order, int duration, int startX, int startY,
+        int currentX, int currentY, EntityID currentAreaId, EntityID targetAreaId) {
       this.order = order;
-      this.remaining = remaining;
+      this.totalDuration = duration;
+      this.startX = startX;
+      this.startY = startY;
+      this.currentX = currentX;
+      this.currentY = currentY;
+      this.currentAreaId = currentAreaId;
+      this.targetAreaId = targetAreaId;
+      this.knownBlockedRoads = new HashSet<>();
+      this.blocked = false;
+      this.blockedRoadId = null;
+      this.remaining = duration;
     }
   }
 }

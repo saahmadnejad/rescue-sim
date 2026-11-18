@@ -75,14 +75,14 @@ public class TelecomSimulator extends StandardSimulator {
     List<BTS> btsList = loadBtsFromConfig();
     TelecomRegistry.getInstance().setAll(btsList);
     boolean policyEnabled = config.getBooleanValue(POLICY_ENABLED_KEY, false);
+    brigade = new RestorationBrigade(config, TelecomRegistry.getInstance());
+    brigade.setWorldModel(model);
     if (policyEnabled) {
-      brigade = new RestorationBrigade(config, TelecomRegistry.getInstance());
       int maxOrders = config.getIntValue(POLICY_MAX_ORDERS_KEY, 2);
       policy = new RuleBasedRestorationPolicy(maxOrders);
       Logger.info("TelecomSimulator: rule-based restoration policy active (max "
           + maxOrders + " orders/tick)");
     } else {
-      brigade = new RestorationBrigade(config, TelecomRegistry.getInstance());
       Logger.info("TelecomSimulator: brigade idle (policy disabled — external orders only)");
     }
     telemetry = new TelemetryServer(TelecomRegistry.getInstance(), brigade);
@@ -109,10 +109,19 @@ public class TelecomSimulator extends StandardSimulator {
     damageModel.step(TelecomRegistry.getInstance().getAll());
     if (policy != null) {
       for (WorkOrder order : policy.plan(TelecomRegistry.getInstance().getAll(), civilianLocations())) {
-        brigade.submit(order);
+        TelecomRegistry.getInstance().submitWorkOrder(order);
       }
     }
-    brigade.tick();
+    // If autonomous restoration agents are registered, they pull orders from registry.
+    // Otherwise fallback to in-process brigade execution.
+    if (TelecomRegistry.getInstance().getBrigadeUnits().isEmpty()) {
+      WorkOrder o;
+      while ((o = TelecomRegistry.getInstance().pollWorkOrder()) != null) {
+        brigade.submit(o);
+      }
+      brigade.tick();
+      TelecomRegistry.getInstance().setBrigadeUnits(brigade.getActiveUnits());
+    }
   }
 
   private Map<EntityID, Pair<Integer, Integer>> civilianLocations() {

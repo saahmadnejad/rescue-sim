@@ -4,31 +4,30 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
 import java.text.NumberFormat;
+import java.util.List;
 
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 
-import rescuecore2.config.Config;
 import rescuecore2.messages.control.KVTimestep;
-import rescuecore2.score.ScoreFunction;
 import rescuecore2.standard.components.StandardViewer;
 import rescuecore2.view.ViewComponent;
-import rescuecore2.Timestep;
-import rescuecore2.worldmodel.Entity;
-import rescuecore2.worldmodel.WorldModel;
+import telecom.CoverageModel;
+import telecom.TelecomRegistry;
+import telecom.entities.BTS;
 
 /**
-   The telecom scenario viewer. Runs in-process via the inline kernel
-   (kernel.viewers.auto +: telecom.view.TelecomViewerComponent) and adds a
-   BTS/coverage panel over the standard map: coverage discs from the
-   in-process TelecomRegistry plus a population-covered-% readout computed
-   with the same CoverageModel the comms model uses.
-
-   <p>Zero kernel edits, config-gated (DECISIONS.md constraint 3). Hidden
-   by default — enable with kernel.viewers.auto +:
-   telecom.view.TelecomViewerComponent in a telecom scenario cfg.</p>
+ * The telecom scenario viewer. Runs in-process via the inline kernel
+ * (kernel.viewers.auto +: telecom.view.TelecomViewerComponent) and adds a
+ * BTS/coverage panel over the standard map: coverage discs from the
+ * in-process TelecomRegistry plus a population-covered-% readout computed
+ * with the same CoverageModel the comms model uses.
+ *
+ * <p>Zero kernel edits, config-gated (DECISIONS.md constraint 3). Hidden
+ * by default — enable with kernel.viewers.auto +:
+ * telecom.view.TelecomViewerComponent in a telecom scenario cfg.</p>
  */
 public class TelecomViewerComponent extends StandardViewer {
 
@@ -39,7 +38,6 @@ public class TelecomViewerComponent extends StandardViewer {
   private static final String MAXIMISE_KEY      = "viewer.maximise";
   private static final String TEAM_NAME_KEY     = "viewer.team-name";
 
-  private ScoreFunction scoreFunction;
   private ViewComponent viewer;
   private JLabel        timeLabel;
   private JLabel        coverageLabel;
@@ -51,7 +49,6 @@ public class TelecomViewerComponent extends StandardViewer {
     super.postConnect();
     int fontSize = config.getIntValue( FONT_SIZE_KEY, DEFAULT_FONT_SIZE );
     String teamName = config.getValue( TEAM_NAME_KEY, "" );
-    scoreFunction = makeScoreFunction();
     format = NumberFormat.getInstance();
     format.setMaximumFractionDigits( PRECISION );
     JFrame frame = new JFrame( "Telecom viewer " + getViewerID() + " ("
@@ -64,7 +61,7 @@ public class TelecomViewerComponent extends StandardViewer {
     // CHECKSTYLE:ON:MagicNumber
     timeLabel = new JLabel( "Time: Not started", JLabel.CENTER );
     teamLabel = new JLabel( teamName, JLabel.CENTER );
-    coverageLabel = new JLabel( "Coverage: Unknown", JLabel.CENTER );
+    coverageLabel = new JLabel( formatCoverageReadout(), JLabel.CENTER );
 
     timeLabel.setBackground( Color.WHITE );
     timeLabel.setOpaque( true );
@@ -98,55 +95,41 @@ public class TelecomViewerComponent extends StandardViewer {
 
       public void run() {
         timeLabel.setText( "Time: " + t.getTime() );
-        double covered = populationCoverage();
-        coverageLabel.setText( "Coverage: " + format.format( covered * 100 ) + "%" );
+        coverageLabel.setText( formatCoverageReadout() );
         viewer.view( model, t.getCommands() );
         viewer.repaint();
       }
     } );
   }
 
+  /**
+   * String representation of this viewer component.
+   *
+   * @return Component name.
+   */
   @Override
   public String toString() {
     return "Telecom viewer";
   }
 
-  double populationCoverage() {
-    telecom.TelecomRegistry registry = telecom.TelecomRegistry.getInstance();
-    if ( registry.getAll().isEmpty() ) {
-      return 1.0;
+  String formatCoverageReadout() {
+    TelecomRegistry registry = TelecomRegistry.getInstance();
+    List<BTS> sites = registry.getAll();
+    if ( sites.isEmpty() ) {
+      return "Coverage: 0% | BTS: 0";
     }
-    return new telecom.CoverageModel().populationCoverageFraction(
-        registry.getAll(), model );
+    double covered = populationCoverage();
+    long serving = sites.stream().filter( BTS::isServing ).count();
+    NumberFormat fmt = format != null ? format : NumberFormat.getInstance();
+    return "Coverage: " + fmt.format( covered * 100 ) + "% | BTS: " + serving + "/" + sites.size();
   }
 
-  private ScoreFunction makeScoreFunction() {
-    String className = config.getValue( "score.function",
-                                        "rescuecore2.standard.score.RSL21ScoreFunction" );
-    ScoreFunction result = rescuecore2.misc.java.JavaTools.instantiate(
-        className, ScoreFunction.class );
-    if ( result == null ) {
-      // Fall back to a no-op rather than NPEing the viewer thread.
-      result = new ScoreFunction() {
-
-        @Override
-        public void initialise( WorldModel<? extends Entity> world, Config config ) {
-        }
-
-
-        @Override
-        public double score( WorldModel<? extends Entity> world, Timestep timestep ) {
-          return 0;
-        }
-
-
-        @Override
-        public String getName() {
-          return "No score function";
-        }
-      };
+  double populationCoverage() {
+    TelecomRegistry registry = TelecomRegistry.getInstance();
+    if ( registry.getAll().isEmpty() || model == null ) {
+      return 0.0;
     }
-    result.initialise( model, config );
-    return result;
+    return new CoverageModel().populationCoverageFraction(
+        registry.getAll(), model );
   }
 }

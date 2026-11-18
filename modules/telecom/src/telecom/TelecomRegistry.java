@@ -24,6 +24,11 @@ public final class TelecomRegistry {
 
   private final List<BTS> btsList = new CopyOnWriteArrayList<>();
   private volatile List<BTS> snapshot = Collections.emptyList();
+  private volatile List<telecom.brigade.BrigadeUnit> brigadeUnits = Collections.emptyList();
+  private final java.util.Set<rescuecore2.worldmodel.EntityID> restorationBlockedRoads =
+      java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private final java.util.Queue<telecom.brigade.WorkOrder> workOrderQueue =
+      new java.util.concurrent.ConcurrentLinkedQueue<>();
 
   private TelecomRegistry() {
   }
@@ -74,10 +79,91 @@ public final class TelecomRegistry {
   }
 
   /**
+   * Update the active dispatched brigade units.
+   *
+   * @param units Active brigade units.
+   */
+  public void setBrigadeUnits(Collection<telecom.brigade.BrigadeUnit> units) {
+    brigadeUnits = units == null ? Collections.emptyList() : List.copyOf(units);
+  }
+
+  /**
+   * Immutable snapshot of active dispatched brigade units.
+   *
+   * @return Current active brigade units.
+   */
+  public List<telecom.brigade.BrigadeUnit> getBrigadeUnits() {
+    return brigadeUnits;
+  }
+
+  /**
+   * Register a road as actively blocking a telecom restoration crew.
+   *
+   * @param roadId Blocked road entity ID.
+   */
+  public void reportRestorationBlockedRoad(rescuecore2.worldmodel.EntityID roadId) {
+    if (roadId != null) {
+      restorationBlockedRoads.add(roadId);
+    }
+  }
+
+  /**
+   * Remove a road from the telecom restoration blockage registry.
+   *
+   * @param roadId Cleared road entity ID.
+   */
+  public void clearRestorationBlockedRoad(rescuecore2.worldmodel.EntityID roadId) {
+    if (roadId != null) {
+      restorationBlockedRoads.remove(roadId);
+    }
+  }
+
+  /**
+   * Get all road IDs currently obstructing telecom restoration crews.
+   *
+   * @return Unmodifiable set of road IDs.
+   */
+  public java.util.Set<rescuecore2.worldmodel.EntityID> getRestorationBlockedRoads() {
+    return Collections.unmodifiableSet(restorationBlockedRoads);
+  }
+
+  /**
+   * Submit a restoration work order into the queue for restoration agents.
+   *
+   * @param order The work order.
+   */
+  public void submitWorkOrder(telecom.brigade.WorkOrder order) {
+    if (order != null) {
+      workOrderQueue.add(order);
+    }
+  }
+
+  /**
+   * Poll the next available work order from the queue.
+   *
+   * @return Next work order, or null if none available.
+   */
+  public telecom.brigade.WorkOrder pollWorkOrder() {
+    return workOrderQueue.poll();
+  }
+
+  /**
+   * Get the current count of pending work orders in the queue.
+   *
+   * @return Number of pending orders.
+   */
+  public int getWorkOrderQueueSize() {
+    return workOrderQueue.size();
+  }
+
+  /**
    * Clear the registry (simulator shutdown / reset between runs).
    */
   public void clear() {
     btsList.clear();
     snapshot = Collections.emptyList();
+    brigadeUnits = Collections.emptyList();
+    restorationBlockedRoads.clear();
+    workOrderQueue.clear();
   }
 }

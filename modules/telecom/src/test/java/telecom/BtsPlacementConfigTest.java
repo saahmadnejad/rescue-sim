@@ -36,8 +36,7 @@ import org.junit.jupiter.api.Test;
  *       centred in it (equal margins), so discs cover the map symmetrically.</li>
  * </ul>
  *
- * <p>Given-When-Then style per jade conventions (AGENTS.md in the jade fork
- * governs).</p>
+ * <p>Given-When-Then test structure.</p>
  */
 class BtsPlacementConfigTest {
 
@@ -53,7 +52,7 @@ class BtsPlacementConfigTest {
     List<Path> configs = findTelecomConfigs(root);
     assertFalse(configs.isEmpty(), "no maps/*/config/kernel-telecom.cfg found under " + root);
 
-    // --- Act / Assert ---
+    // --- Act ---
     int explicitScenarios = 0;
     for (Path config : configs) {
       String scenario = scenarioName(config);
@@ -72,6 +71,7 @@ class BtsPlacementConfigTest {
       }
       explicitScenarios++;
 
+      // --- Assert ---
       for (Site site : sites) {
         assertTrue(bounds.contains(site.x, site.y),
             scenario + ": BTS at (" + site.x + "," + site.y + ") is outside the map "
