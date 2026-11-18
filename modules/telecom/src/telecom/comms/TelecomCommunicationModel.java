@@ -90,18 +90,26 @@ public class TelecomCommunicationModel implements CommunicationModel {
     return heard;
   }
 
-  private boolean isCovered(Entity agent) {
+  /**
+   * Returns the serving BTS that the agent is currently connected to.
+   *
+   * @param agent The agent entity.
+   * @return The serving BTS, or {@code null} if the agent is outside cellular coverage.
+   */
+  public telecom.entities.BTS servingBTS(Entity agent) {
     if (agent == null) {
-      return false;
+      return null;
     }
     Pair<Integer, Integer> location = locationOf(agent);
     if (location == null) {
-      // No location known: uncovered (safe default — a dead/absent agent
-      // does not get free comms).
-      return false;
+      return null;
     }
-    return coverage.isCovered(TelecomRegistry.getInstance().getAll(),
+    return coverage.servingBTS(TelecomRegistry.getInstance().getAll(),
         location.first(), location.second());
+  }
+
+  private boolean isCovered(Entity agent) {
+    return servingBTS(agent) != null;
   }
 
   private Pair<Integer, Integer> locationOf(Entity agent) {

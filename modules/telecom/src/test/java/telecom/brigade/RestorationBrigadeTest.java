@@ -1,14 +1,20 @@
 package telecom.brigade;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import rescuecore2.config.Config;
+import rescuecore2.standard.entities.Edge;
+import rescuecore2.standard.entities.Road;
+import rescuecore2.standard.entities.StandardWorldModel;
 import rescuecore2.worldmodel.EntityID;
 import telecom.TelecomRegistry;
 import telecom.entities.BTS;
@@ -140,6 +146,68 @@ class RestorationBrigadeTest {
     // --- Assert ---
     assertTrue(coverage.isCovered(registry.getAll(), 50000, 50000),
         "COW radius 100000 must cover a point 50k away");
+  }
+
+  @Test
+  void Given_WorldWithBlockedRoad_When_Tick_Then_UnitHaltsAndWorkPausesUntilCleared() {
+    // --- Arrange ---
+    StandardWorldModel world = new StandardWorldModel();
+    Road r1 = new Road(new EntityID(101));
+    r1.setX(0);
+    r1.setY(0);
+    r1.setEdges(new ArrayList<>());
+
+    Road r2 = new Road(new EntityID(102));
+    r2.setX(1000);
+    r2.setY(0);
+    r2.setEdges(new ArrayList<>());
+
+    List<Edge> e1 = new ArrayList<>();
+    e1.add(new Edge(0, 0, 1000, 0, r2.getID()));
+    r1.setEdges(e1);
+
+    List<Edge> e2 = new ArrayList<>();
+    e2.add(new Edge(1000, 0, 0, 0, r1.getID()));
+    r2.setEdges(e2);
+
+    // Road 2 is obstructed with rubble
+    r2.setBlockades(List.of(new EntityID(999)));
+
+    world.addEntity(r1);
+    world.addEntity(r2);
+
+    BTS damaged = standingBts(1, 1000, 0);
+    damaged.setState(State.DAMAGED);
+    registry.setAll(List.of(damaged));
+
+    RestorationBrigade brigade = new RestorationBrigade(config, registry);
+    brigade.setWorldModel(world);
+    brigade.setDepot(0, 0);
+
+    // --- Act ---
+    brigade.submit(new WorkOrder(WorkOrder.Kind.REPAIR, 1000, 0));
+    brigade.tick();
+
+    // --- Assert: Unit is halted before blocked road, work countdown is paused ---
+    List<BrigadeUnit> units = brigade.getActiveUnits();
+    assertEquals(1, units.size());
+    BrigadeUnit unit = units.get(0);
+    assertTrue(unit.isBlocked(), "Unit must be halted at blockade");
+    assertEquals(r2.getID(), unit.getBlockedRoadId());
+    assertEquals(State.DAMAGED, damaged.getState(), "BTS must not be repaired while crew is blocked");
+
+    // Wait several ticks: still blocked
+    tick(brigade, 10);
+    assertEquals(State.DAMAGED, damaged.getState(), "BTS still not repaired while blocked");
+
+    // --- Act 2: Police force clears the road blockade ---
+    r2.setBlockades(Collections.emptyList());
+    // Move onto site (1 step) + repair (5 steps)
+    tick(brigade, 6);
+
+    // --- Assert 2: Crew reached site and finished repairs ---
+    assertEquals(State.OPERATIONAL, damaged.getState(), "BTS restored after road cleared");
+    assertEquals(0, brigade.getActiveUnits().size());
   }
 
   private void tick(RestorationBrigade brigade, int steps) {

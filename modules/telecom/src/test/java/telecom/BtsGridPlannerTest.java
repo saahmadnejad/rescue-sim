@@ -37,10 +37,19 @@ class BtsGridPlannerTest {
 
   @Test
   void Given_BiggerCity_When_CountDerived_Then_CountScales() {
+    // --- Arrange ---
     // kobe model box ~0.17 km2 -> density target 1 clamped to min 6;
     // berlin ~3.58 km2 -> round(28.6) = 29.
-    int kobe = BtsGridPlanner.targetSiteCount(468520, 364080, DEFAULTS);
-    int berlin = BtsGridPlanner.targetSiteCount(2187484, 1637291, DEFAULTS);
+    int kobeW = 468520;
+    int kobeH = 364080;
+    int berlinW = 2187484;
+    int berlinH = 1637291;
+
+    // --- Act ---
+    int kobe = BtsGridPlanner.targetSiteCount(kobeW, kobeH, DEFAULTS);
+    int berlin = BtsGridPlanner.targetSiteCount(berlinW, berlinH, DEFAULTS);
+
+    // --- Assert ---
     assertEquals(6, kobe);
     assertEquals(29, berlin);
     assertTrue(berlin > kobe);
@@ -48,6 +57,7 @@ class BtsGridPlannerTest {
 
   @Test
   void Given_TinyOrHugeCity_When_CountDerived_Then_Clamped() {
+    // --- Arrange / Act / Assert ---
     assertEquals(BtsGridPlanner.DEFAULT_MIN_SITES,
         BtsGridPlanner.targetSiteCount(100000, 100000, DEFAULTS));
     assertEquals(BtsGridPlanner.DEFAULT_MAX_SITES,
@@ -56,20 +66,28 @@ class BtsGridPlannerTest {
 
   @Test
   void Given_AspectRatio_When_ShapeDerived_Then_CellsNearSquare() {
+    // --- Arrange / Act ---
     int[] wide = BtsGridPlanner.gridShape(30, 2000, 1000);
-    assertTrue(wide[0] > wide[1]);
     int[] square = BtsGridPlanner.gridShape(30, 1000, 1000);
+
+    // --- Assert ---
+    assertTrue(wide[0] > wide[1]);
     assertTrue(Math.abs(square[0] - square[1]) <= 1);
   }
 
   @Test
   void Given_BerlinBox_When_PlanBox_Then_SitesCentredAndInside() {
+    // --- Arrange ---
     // Use the polygon-aware overload with no candidates: every raw grid point
     // is kept, which isolates the grid geometry from the snap.
     List<long[]> centroids = new ArrayList<>();
     List<List<Point2D>> polygons = new ArrayList<>();
+
+    // --- Act ---
     BtsGridPlanner.Plan plan = new BtsGridPlanner().plan(0, 0, 2187484,
         1637291, centroids, polygons, DEFAULTS);
+
+    // --- Assert ---
     // Exact count: the plan holds the target count (29 for Berlin at default
     // density), not the 30 cells that gridShape covers.
     assertEquals(29, BtsGridPlanner.targetSiteCount(2187484, 1637291, DEFAULTS),
@@ -122,6 +140,7 @@ class BtsGridPlannerTest {
 
   @Test
   void Given_CentroidsNearGrid_When_Snap_Then_DistinctSites() {
+    // --- Arrange ---
     List<long[]> raw = new ArrayList<>();
     raw.add(new long[] {500, 500});
     raw.add(new long[] {1500, 500});
@@ -130,7 +149,11 @@ class BtsGridPlannerTest {
     List<long[]> centroids = new ArrayList<>();
     centroids.add(new long[] {520, 500});
     centroids.add(new long[] {1480, 1500});
+
+    // --- Act ---
     List<long[]> snapped = BtsGridPlanner.snapToBuildings(raw, centroids, 350);
+
+    // --- Assert ---
     assertEquals(520, snapped.get(0)[0]);
     assertEquals(500, snapped.get(1)[1], "unsnapped point keeps raw y");
     assertEquals(1480, snapped.get(3)[0]);
@@ -138,35 +161,73 @@ class BtsGridPlannerTest {
 
   @Test
   void Given_CentroidTooFar_When_Snap_Then_PointUnchanged() {
+    // --- Arrange ---
     List<long[]> raw = new ArrayList<>();
     raw.add(new long[] {500, 500});
     List<long[]> centroids = new ArrayList<>();
     centroids.add(new long[] {5000, 5000});
+
+    // --- Act ---
     List<long[]> snapped = BtsGridPlanner.snapToBuildings(raw, centroids, 350);
+
+    // --- Assert ---
     assertEquals(500, snapped.get(0)[0]);
   }
 
   @Test
+  void Given_FineResolutionBox_When_Plan_Then_SnapBudgetPreservesMilliFraction() {
+    // --- Arrange ---
+    // Box with dx=1500mm, dy=2250mm. With snapMaxMilli=350, budget is 1500 * 350 / 1000 = 525mm.
+    // Integer truncation (1500 / 1000 * 350) previously collapsed this to 350mm (a 175mm loss).
+    // The first raw site is at (750, 1125).
+    List<long[]> centroids = new ArrayList<>();
+    centroids.add(new long[] {750 + 450, 1125}); // offset by 450mm from raw site (750, 1125)
+    List<List<Point2D>> polygons = new ArrayList<>();
+    polygons.add(List.of(
+        new Point2D(0, 0), new Point2D(3000, 0),
+        new Point2D(3000, 3000), new Point2D(0, 3000)));
+
+    // --- Act ---
+    BtsGridPlanner.Plan plan = new BtsGridPlanner().plan(0, 0, 4500, 4500,
+        centroids, polygons, DEFAULTS);
+
+    // --- Assert ---
+    // With min(dx, dy)=1500mm, snapMax is 525mm.
+    // Centroid at 450mm offset is within the 525mm budget (and outside 350mm), proving
+    // the milli-fraction was preserved without premature integer division.
+    assertEquals(1200, plan.snappedPoints.get(0)[0],
+        "Fine resolution snap budget must preserve milli-fraction without truncation");
+  }
+
+  @Test
   void Given_TwoPointsOneCentroid_When_Snap_Then_SecondKeepsRaw() {
+    // --- Arrange ---
     List<long[]> raw = new ArrayList<>();
     raw.add(new long[] {500, 500});
     raw.add(new long[] {510, 510});
     List<long[]> centroids = new ArrayList<>();
     centroids.add(new long[] {505, 505});
+
+    // --- Act ---
     List<long[]> snapped = BtsGridPlanner.snapToBuildings(raw, centroids, 350);
+
+    // --- Assert ---
     assertEquals(505, snapped.get(0)[0]);
     assertEquals(510, snapped.get(1)[0], "centroid used only once");
   }
 
   @Test
   void Given_ExtremeCells_When_RadiusDerived_Then_Clamped() {
+    // --- Arrange / Act / Assert ---
     assertEquals(BtsGridPlanner.MIN_RADIUS_MM,
         BtsGridPlanner.coverageRadius(30000, 30000));
     assertEquals(BtsGridPlanner.MAX_RADIUS_MM,
         BtsGridPlanner.coverageRadius(2000000, 2000000));
   }
+
   @Test
   void Given_UShapedBuilding_When_Plan_Then_CourtyardCentroidSkipped() {
+    // --- Arrange ---
     // U-shaped building: the edge-average centroid falls in the courtyard
     // void. Vertices: (0,0),(60000,0),(60000,60000),(40000,60000),
     //          (40000,20000),(20000,20000),(20000,60000),(0,60000)
@@ -198,8 +259,12 @@ class BtsGridPlannerTest {
     // (as this test originally had it) accept and reject look identical.
     List<long[]> raw = new ArrayList<>();
     raw.add(new long[] {15000, 35000});
+
+    // --- Act ---
     List<long[]> snapped = BtsGridPlanner.snapToBuildingsWithContainment(
         raw, centroids, polygons, 25000);
+
+    // --- Assert ---
     assertEquals(15000, snapped.get(0)[0],
         "courtyard centroid must be rejected, raw point kept");
     assertEquals(35000, snapped.get(0)[1]);
@@ -213,11 +278,16 @@ class BtsGridPlannerTest {
 
   @Test
   void Given_SquareMapAtMaxClamp_When_Plan_Then_EmittedEqualsMax() {
+    // --- Arrange ---
     // At default density (8 sites/km2), a huge square map should emit
     // exactly maxSites (48), not more due to shape rounding.
     long side = 10000000L; // 10km x 10km = 100 km2
+
+    // --- Act ---
     BtsGridPlanner.Plan plan = new BtsGridPlanner().plan(0, 0, side, side,
         new ArrayList<>(), new ArrayList<>(), DEFAULTS);
+
+    // --- Assert ---
     assertEquals(DEFAULTS.maxSites, plan.rawPoints.size(),
         "square map at huge area should emit exactly maxSites=");
     assertCentredInMap(plan, 0, 0, side, side);
@@ -225,14 +295,19 @@ class BtsGridPlannerTest {
 
   @Test
   void Given_MapThatRoundsShapeDown_When_Plan_Then_CountIsStillExact() {
+    // --- Arrange ---
     // 1.1 km square -> target round(8 * 1.21) = 10, but sqrt(10) rounds the
     // shape to 3x3 = 9 cells. The emitted count must follow the target, not
     // the shape: this is the case the previous quota-only fix got wrong.
     long side = 1100000L;
     assertEquals(10, BtsGridPlanner.targetSiteCount(side, side, DEFAULTS),
         "precondition: this box targets 10 sites");
+
+    // --- Act ---
     BtsGridPlanner.Plan plan = new BtsGridPlanner().plan(0, 0, side, side,
         new ArrayList<>(), new ArrayList<>(), DEFAULTS);
+
+    // --- Assert ---
     assertEquals(10, plan.rawPoints.size(),
         "short shape (3x3 = 9 cells) must still carry the full target of 10");
     assertEquals(10, plan.snappedPoints.size(), "snap is 1:1 with raw points");
@@ -241,11 +316,16 @@ class BtsGridPlannerTest {
 
   @Test
   void Given_NonSquareMapAtMaxClamp_When_Plan_Then_EmittedEqualsMax() {
+    // --- Arrange ---
     // Extreme aspect ratio map (100:1) should still emit exactly maxSites.
     long width = 100000000L; // 100km
     long height = 1000000L;  // 1km
+
+    // --- Act ---
     BtsGridPlanner.Plan plan = new BtsGridPlanner().plan(0, 0, width, height,
         new ArrayList<>(), new ArrayList<>(), DEFAULTS);
+
+    // --- Assert ---
     assertEquals(DEFAULTS.maxSites, plan.rawPoints.size(),
         "extreme aspect map should emit exactly maxSites=");
     assertTrue(plan.cols > plan.rows,
@@ -257,14 +337,19 @@ class BtsGridPlannerTest {
 
   @Test
   void Given_TranslatedBox_When_Plan_Then_ShapeRadiusUnchanged() {
+    // --- Arrange ---
     // Same-size box at origin vs offset should produce identical shape/radius,
     // with positions shifted by the offset.
     long size = 1000000L; // 1km x 1km
     long offset = 500000L; // 500m offset
+
+    // --- Act ---
     BtsGridPlanner.Plan plan0 = new BtsGridPlanner().plan(0, 0, size, size,
         new ArrayList<>(), new ArrayList<>(), DEFAULTS);
     BtsGridPlanner.Plan plan1 = new BtsGridPlanner().plan(offset, offset,
         size + offset, size + offset, new ArrayList<>(), new ArrayList<>(), DEFAULTS);
+
+    // --- Assert ---
     assertEquals(plan0.cols, plan1.cols, "cols should match");
     assertEquals(plan0.rows, plan1.rows, "rows should match");
     assertEquals(plan0.dx, plan1.dx, "dx should match");
@@ -283,6 +368,7 @@ class BtsGridPlannerTest {
 
   @Test
   void Given_RectangularBuilding_When_CentroidInside_Then_SnapSucceeds() {
+    // --- Arrange ---
     // Rectangular building: centroid should be inside, snapping succeeds.
     List<Point2D> rect = new ArrayList<>();
     rect.add(new Point2D(0, 0));
@@ -301,8 +387,12 @@ class BtsGridPlannerTest {
     // raw == centroid (the earlier version) is satisfied by a no-op too.
     List<long[]> raw = new ArrayList<>();
     raw.add(new long[] {48000, 25000});
+
+    // --- Act ---
     List<long[]> snapped = BtsGridPlanner.snapToBuildingsWithContainment(
         raw, centroids, polygons, 10000);
+
+    // --- Assert ---
     assertEquals(50000, snapped.get(0)[0],
         "contained centroid must be snapped to");
     assertEquals(25000, snapped.get(0)[1]);
@@ -310,6 +400,7 @@ class BtsGridPlannerTest {
 
   @Test
   void Given_WorldWithDegenerateBuilding_When_Plan_Then_ListsStayAligned() {
+    // --- Arrange ---
     // Regression for the kernel-connect crash: buildingCentroids used to skip
     // non-Building/edgeless entities while buildingPolygons emitted empty-list
     // sentinels, so the two lists diverged in length and alignment and
@@ -349,6 +440,53 @@ class BtsGridPlannerTest {
         plan.rawPoints.size(), "plan(world, params) must not throw");
     assertEquals(plan.rawPoints.size(), plan.snappedPoints.size(),
         "snapping is 1:1 with the raw grid");
+  }
+
+  @Test
+  void Given_ExplicitRadiusInParams_When_Plan_Then_ExplicitRadiusUsed() {
+    // --- Arrange ---
+    int explicitRadius = 45000; // 45m realistic microcell
+    BtsGridPlanner.Params paramsWithRadius = new BtsGridPlanner.Params(
+        BtsGridPlanner.DEFAULT_SITES_PER_KM2_MILLI,
+        BtsGridPlanner.DEFAULT_MIN_SITES,
+        BtsGridPlanner.DEFAULT_MAX_SITES,
+        BtsGridPlanner.DEFAULT_SNAP_MAX_MILLI,
+        explicitRadius);
+
+    // --- Act ---
+    BtsGridPlanner.Plan plan = new BtsGridPlanner().plan(0, 0, 468520, 364080,
+        new ArrayList<>(), new ArrayList<>(), paramsWithRadius);
+
+    // --- Assert ---
+    assertEquals(explicitRadius, plan.radius,
+        "plan must use explicit radius when provided in params");
+  }
+
+  @Test
+  void Given_ConfigWithExplicitRadius_When_FromConfig_Then_ExplicitRadiusResolved() {
+    // --- Arrange ---
+    rescuecore2.config.Config config = new rescuecore2.config.Config();
+    config.setIntValue(BtsGridPlanner.RADIUS_KEY, 50000);
+
+    // --- Act ---
+    BtsGridPlanner.Params params = BtsGridPlanner.Params.fromConfig(config);
+
+    // --- Assert ---
+    assertEquals(50000, params.explicitRadiusMm,
+        "explicit radius must be resolved from config");
+  }
+
+  @Test
+  void Given_DefaultConfig_When_FromConfig_Then_ExplicitRadiusIsZero() {
+    // --- Arrange ---
+    rescuecore2.config.Config config = new rescuecore2.config.Config();
+
+    // --- Act ---
+    BtsGridPlanner.Params params = BtsGridPlanner.Params.fromConfig(config);
+
+    // --- Assert ---
+    assertEquals(0, params.explicitRadiusMm,
+        "explicit radius must default to 0 when unset");
   }
 
 }

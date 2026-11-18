@@ -41,3 +41,5 @@ logs
 jars
 lib
 test-results
+rays
+scripts/rays

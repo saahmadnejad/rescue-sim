@@ -81,7 +81,7 @@ fi
 
 GUI_OPTION=""
 if [[ $NOGUI == "yes" ]]; then
-  GUI_OPTION="--nogui"
+  GUI_OPTION="--nogui --nomenu --autorun"
 fi
 
 makeClasspath $BASEDIR/jars $BASEDIR/lib

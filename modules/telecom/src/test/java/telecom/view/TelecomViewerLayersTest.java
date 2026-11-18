@@ -29,8 +29,7 @@ import telecom.entities.BTS.State;
 import telecom.entities.TelecomEntityFactory;
 
 /**
- * Unit tests for the telecom view layer. Given-When-Then style per jade
- * conventions (AGENTS.md in the jade fork governs).
+ * Unit tests for the telecom view layer. Given-When-Then test style.
  */
 class TelecomViewerLayersTest {
 
@@ -92,7 +91,7 @@ class TelecomViewerLayersTest {
   }
 
   @Test
-  void Given_OneServingOneDownBTS_When_Rendered_Then_TwoDiscsRendered() {
+  void Given_OneServingOneDownBTS_When_Rendered_Then_ServingGetsDiscAndDownGetsMarker() {
     // --- Arrange ---
     BTS serving = servingBTS(1, 10000, 10000, 20000);
     BTS down = servingBTS(2, 50000, 50000, 20000);
@@ -103,10 +102,21 @@ class TelecomViewerLayersTest {
 
     // --- Act ---
     Graphics2D g = (Graphics2D) new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB).getGraphics();
-    var rendered = layer.render(g, new ScreenTransform(0, 0, 100000, 100000), 800, 600);
+    ScreenTransform t = new ScreenTransform(0, 0, 100000, 100000);
+    t.rescale(800, 600);
+    var rendered = layer.render(g, t, 800, 600);
 
     // --- Assert ---
     assertEquals(2, rendered.size());
+    for (RenderedObject ro : rendered) {
+      if (ro.getObject() == serving) {
+        assertTrue(ro.getShape().getBounds2D().getWidth() > 20,
+            "Serving BTS must render coverage disc with width > 20px");
+      } else if (ro.getObject() == down) {
+        assertTrue(ro.getShape().getBounds2D().getWidth() <= 10,
+            "Damaged/down BTS must only render tower marker (<=10px), no coverage disc");
+      }
+    }
   }
 
   @Test
@@ -119,6 +129,30 @@ class TelecomViewerLayersTest {
     // --- Act / Assert ---
     Graphics2D g = (Graphics2D) new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB).getGraphics();
     assertTrue(layer.render(g, new ScreenTransform(0, 0, 100000, 100000), 800, 600).isEmpty());
+  }
+
+  @Test
+  void Given_RegistryPopulatedAfterView_When_Rendered_Then_DiscsRenderedFromRegistry() {
+    // --- Arrange ---
+    // Regression for the timestep-0 blank viewer race:
+    // TelecomViewerComponent connects and calls view(world) before
+    // TelecomSimulator finishes populating the registry. When repaint occurs,
+    // render() should fall back to registry.getAll() rather than returning empty.
+    StandardWorldModel world = new StandardWorldModel();
+    layer.view((Object) world);
+    assertTrue(layer.snapshotForTest().isEmpty(), "snapshot should initially be empty");
+
+    // Simulator finishes connect and populates registry
+    BTS bts = servingBTS(1, 10000, 10000, 20000);
+    registry.setAll(List.of(bts));
+
+    // --- Act ---
+    // Repaint on screen at timestep 0
+    Graphics2D g = (Graphics2D) new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB).getGraphics();
+    Collection<RenderedObject> rendered = layer.render(g, new ScreenTransform(0, 0, 100000, 100000), 800, 600);
+
+    // --- Assert ---
+    assertEquals(1, rendered.size(), "BTS disc must render on repaint once registry is populated");
   }
 
   @Test
@@ -161,5 +195,87 @@ class TelecomViewerLayersTest {
 
     // --- Assert ---
     assertTrue(layers.stream().anyMatch(l -> "BTS coverage".equals(l.getName())));
+  }
+
+  @Test
+  void Given_EmptyRegistry_When_ReadoutFormatted_Then_ReportsZeroCoverage() {
+    // --- Arrange ---
+    registry.clear();
+    TelecomViewerComponent comp = new TelecomViewerComponent();
+
+    // --- Act ---
+    String readout = comp.formatCoverageReadout();
+    double coverage = comp.populationCoverage();
+
+    // --- Assert ---
+    assertEquals("Coverage: 0% | BTS: 0", readout);
+    assertEquals(0.0, coverage, 1e-9, "Empty registry must yield 0% coverage, not 100%");
+  }
+
+  @Test
+  void Given_PopulatedRegistry_When_ReadoutFormatted_Then_ReportsRatioAndCoverage() {
+    // --- Arrange ---
+    BTS serving = servingBTS(1, 10000, 10000, 20000);
+    BTS down = servingBTS(2, 50000, 50000, 20000);
+    down.setState(State.DAMAGED);
+    registry.setAll(List.of(serving, down));
+    TelecomViewerComponent comp = new TelecomViewerComponent();
+
+    // --- Act ---
+    String readout = comp.formatCoverageReadout();
+
+    // --- Assert ---
+    assertTrue(readout.contains("BTS: 1/2"), "Readout must report 1 serving out of 2 total BTSs: " + readout);
+    assertTrue(readout.startsWith("Coverage: "), "Readout must report coverage: " + readout);
+  }
+
+  @Test
+  void Given_ActiveBrigadeUnits_When_Rendered_Then_UnitsAndRoutesRendered() {
+    // --- Arrange ---
+    BTS down = servingBTS(1, 80000, 80000, 20000);
+    down.setState(State.DAMAGED);
+    registry.setAll(List.of(down));
+    telecom.brigade.BrigadeUnit unit = new telecom.brigade.BrigadeUnit(
+        1, telecom.brigade.WorkOrder.Kind.REPAIR, 10000, 10000, 80000, 80000, 30, 20);
+    registry.setBrigadeUnits(List.of(unit));
+    StandardWorldModel world = new StandardWorldModel();
+    layer.view((Object) world);
+
+    // --- Act ---
+    Graphics2D g = (Graphics2D) new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB).getGraphics();
+    ScreenTransform t = new ScreenTransform(0, 0, 100000, 100000);
+    t.rescale(800, 600);
+    Collection<RenderedObject> rendered = layer.render(g, t, 800, 600);
+
+    // --- Assert ---
+    // 1 BTS + 1 BrigadeUnit = 2 rendered objects
+    assertEquals(2, rendered.size(), "Must render both BTS and dispatched brigade unit");
+    assertTrue(rendered.stream().anyMatch(ro -> ro.getObject() instanceof telecom.brigade.BrigadeUnit),
+        "Rendered collection must include BrigadeUnit");
+  }
+
+  @Test
+  void Given_DeployedCOW_When_Rendered_Then_RenderedWithDistinctCOWLabel() {
+    // --- Arrange ---
+    telecom.entities.COW cow = new telecom.entities.COW(new EntityID(100));
+    cow.setX(50000);
+    cow.setY(50000);
+    cow.setCoverageRadius(20000);
+    cow.setState(State.OPERATIONAL);
+    cow.setPowerMode(PowerMode.GENERATOR);
+    cow.setBackhaul(Backhaul.SATELLITE);
+    registry.setAll(List.of(cow));
+    StandardWorldModel world = new StandardWorldModel();
+    layer.view((Object) world);
+
+    // --- Act ---
+    Graphics2D g = (Graphics2D) new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB).getGraphics();
+    ScreenTransform t = new ScreenTransform(0, 0, 100000, 100000);
+    t.rescale(800, 600);
+    Collection<RenderedObject> rendered = layer.render(g, t, 800, 600);
+
+    // --- Assert ---
+    assertEquals(1, rendered.size());
+    assertEquals(cow, rendered.iterator().next().getObject());
   }
 }
