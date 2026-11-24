@@ -126,7 +126,7 @@ public final class RoadRouter {
           continue;
         }
         StandardEntity neighbour = world.getEntity(neighbourId);
-        if (!(neighbour instanceof Road)) {
+        if (!(neighbour instanceof Road) && !targetId.equals(neighbourId)) {
           continue;
         }
         Road nextRoad = (Road) neighbour;
@@ -326,7 +326,7 @@ public final class RoadRouter {
           continue;
         }
         StandardEntity neighbour = world.getEntity(neighbourId);
-        if (!(neighbour instanceof Road)) {
+        if (!(neighbour instanceof Road) && !targetId.equals(neighbourId)) {
           continue;
         }
         visited.add(neighbourId);

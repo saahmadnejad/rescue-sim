@@ -20,10 +20,13 @@ import rescuecore2.registry.Registry;
 import rescuecore2.standard.entities.AmbulanceTeam;
 import rescuecore2.standard.entities.Civilian;
 import rescuecore2.standard.entities.Edge;
+import rescuecore2.standard.entities.Refuge;
 import rescuecore2.standard.entities.Road;
+import rescuecore2.standard.messages.AKLoad;
 import rescuecore2.standard.messages.AKMove;
 import rescuecore2.standard.messages.AKRescue;
 import rescuecore2.standard.messages.AKSpeak;
+import rescuecore2.standard.messages.AKUnload;
 import rescuecore2.worldmodel.ChangeSet;
 import rescuecore2.worldmodel.Entity;
 import rescuecore2.worldmodel.EntityID;
@@ -182,5 +185,83 @@ class TelecomAmbulanceTeamTest {
     assertTrue(cmd instanceof AKMove);
     AKMove move = (AKMove) cmd;
     assertTrue(move.getPath().contains(r2Id), "Ambulance must move towards reported victim location");
+  }
+
+  @Test
+  void Given_UnburiedDamagedCivilianAtSameLocation_When_Think_Then_EmitsAKLoad() {
+    // --- Arrange ---
+    EntityID roadId = new EntityID(1);
+    EntityID ambId = new EntityID(10);
+    EntityID civId = new EntityID(20);
+
+    Road road = new Road(roadId);
+    road.setX(100);
+    road.setY(100);
+    road.setEdges(new ArrayList<>());
+
+    AmbulanceTeam ambulance = new AmbulanceTeam(ambId);
+    ambulance.setX(100);
+    ambulance.setY(100);
+    ambulance.setPosition(roadId);
+    ambulance.setHP(10000);
+    ambulance.setBuriedness(0);
+
+    Civilian civ = new Civilian(civId);
+    civ.setX(100);
+    civ.setY(100);
+    civ.setPosition(roadId);
+    civ.setHP(7000);
+    civ.setDamage(150);
+    civ.setBuriedness(0); // Unburied, but bleeding
+
+    List<Entity> entities = List.of(road, ambulance, civ);
+    TelecomAmbulanceTeam agent = new TelecomAmbulanceTeam();
+    agent.postConnect(mockConnection, ambId, entities, config);
+
+    // --- Act ---
+    agent.think(5, new ChangeSet(), Collections.emptyList());
+
+    // --- Assert ---
+    boolean hasLoad = sentMessages.stream().anyMatch(m -> m instanceof AKLoad);
+    assertTrue(hasLoad, "Must emit AKLoad for injured civilian at current location");
+    AKLoad load = (AKLoad) sentMessages.stream().filter(m -> m instanceof AKLoad).findFirst().get();
+    assertEquals(civId, load.getTarget());
+  }
+
+  @Test
+  void Given_LoadedCivilianAtRefuge_When_Think_Then_EmitsAKUnload() {
+    // --- Arrange ---
+    EntityID refugeId = new EntityID(99);
+    EntityID ambId = new EntityID(10);
+    EntityID civId = new EntityID(20);
+
+    Refuge refuge = new Refuge(refugeId);
+    refuge.setX(200);
+    refuge.setY(200);
+    refuge.setEdges(new ArrayList<>());
+
+    AmbulanceTeam ambulance = new AmbulanceTeam(ambId);
+    ambulance.setX(200);
+    ambulance.setY(200);
+    ambulance.setPosition(refugeId); // Inside Refuge
+    ambulance.setHP(10000);
+    ambulance.setBuriedness(0);
+
+    // Civilian position set to the ambulance ID (loaded on board)
+    Civilian civ = new Civilian(civId);
+    civ.setPosition(ambId);
+    civ.setHP(6500);
+    civ.setDamage(120);
+
+    List<Entity> entities = List.of(refuge, ambulance, civ);
+    TelecomAmbulanceTeam agent = new TelecomAmbulanceTeam();
+    agent.postConnect(mockConnection, ambId, entities, config);
+
+    // --- Act ---
+    agent.think(6, new ChangeSet(), Collections.emptyList());
+
+    // --- Assert ---
+    boolean hasUnload = sentMessages.stream().anyMatch(m -> m instanceof AKUnload);
+    assertTrue(hasUnload, "Must emit AKUnload when arriving at Refuge with loaded patient");
   }
 }

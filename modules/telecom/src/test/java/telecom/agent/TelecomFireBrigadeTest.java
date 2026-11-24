@@ -21,9 +21,11 @@ import rescuecore2.registry.Registry;
 import rescuecore2.standard.entities.Building;
 import rescuecore2.standard.entities.Edge;
 import rescuecore2.standard.entities.FireBrigade;
+import rescuecore2.standard.entities.Refuge;
 import rescuecore2.standard.entities.Road;
 import rescuecore2.standard.messages.AKExtinguish;
 import rescuecore2.standard.messages.AKMove;
+import rescuecore2.standard.messages.AKRest;
 import rescuecore2.standard.messages.AKSpeak;
 import rescuecore2.worldmodel.ChangeSet;
 import rescuecore2.worldmodel.Entity;
@@ -188,5 +190,39 @@ class TelecomFireBrigadeTest {
     assertTrue(cmd instanceof AKMove);
     AKMove move = (AKMove) cmd;
     assertTrue(move.getPath().contains(r2Id));
+  }
+
+  @Test
+  void Given_EmptyWaterTankAtRefuge_When_Think_Then_RestsToRefill() {
+    EntityID refugeId = new EntityID(50);
+    EntityID fbId = new EntityID(10);
+
+    Refuge refuge = new Refuge(refugeId);
+    refuge.setX(0);
+    refuge.setY(0);
+    refuge.setEdges(new ArrayList<>());
+
+    FireBrigade fb = new FireBrigade(fbId);
+    fb.setX(0);
+    fb.setY(0);
+    fb.setPosition(refugeId);
+    fb.setHP(10000);
+    fb.setBuriedness(0);
+    fb.setWater(0); // empty tank
+
+    List<Entity> entities = List.of(refuge, fb);
+    TelecomFireBrigade agent = new TelecomFireBrigade();
+    agent.postConnect(mockConnection, fbId, entities, config);
+
+    // Act
+    agent.think(4, new ChangeSet(), Collections.emptyList());
+
+    // Assert: must rest at refuge to refill water
+    assertFalse(sentMessages.isEmpty());
+    Message cmd = sentMessages.stream()
+        .filter(m -> m instanceof AKRest)
+        .findFirst()
+        .orElse(null);
+    assertNotNull(cmd, "Fire brigade must send AKRest while refilling inside refuge");
   }
 }

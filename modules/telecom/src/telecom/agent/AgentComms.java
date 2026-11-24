@@ -24,8 +24,56 @@ public final class AgentComms {
   public static final String PREFIX_RESTORE_BLOCKED = "RST_BLK:";
   public static final String PREFIX_CLAIM_CIVILIAN = "CLM_CIV:";
   public static final String PREFIX_CLAIM_FIRE = "CLM_FIR:";
+  public static final String PREFIX_CLAIM_BTS = "CLM_BTS:";
+  public static final String PREFIX_BTS = "BTS:";
+  public static final String PREFIX_BTS_RESTORED = "BTS_OK:";
 
   private AgentComms() {
+  }
+
+  /**
+   * Discovered or reported BTS cellular tower details.
+   */
+  public static final class BtsReport {
+    private final EntityID btsId;
+    private final int x;
+    private final int y;
+    private final int state;
+
+    /**
+     * Construct a parsed BTS outage report.
+     *
+     * @param btsId BTS entity ID.
+     * @param x BTS X coordinate (mm).
+     * @param y BTS Y coordinate (mm).
+     * @param state Encoded BTS state code.
+     */
+    public BtsReport(EntityID btsId, int x, int y, int state) {
+      this.btsId = btsId;
+      this.x = x;
+      this.y = y;
+      this.state = state;
+    }
+
+    /** @return BTS entity ID. */
+    public EntityID getBtsId() {
+      return btsId;
+    }
+
+    /** @return BTS X coordinate (mm). */
+    public int getX() {
+      return x;
+    }
+
+    /** @return BTS Y coordinate (mm). */
+    public int getY() {
+      return y;
+    }
+
+    /** @return Encoded BTS state code. */
+    public int getState() {
+      return state;
+    }
   }
 
   /**
@@ -206,6 +254,28 @@ public final class AgentComms {
   }
 
   /**
+   * Encode a restoration crew claim on a damaged BTS.
+   *
+   * @param btsId   BTS entity ID.
+   * @param agentId Restoration agent entity ID.
+   * @return Byte payload.
+   */
+  public static byte[] encodeClaimBts(EntityID btsId, EntityID agentId) {
+    return (PREFIX_CLAIM_BTS + btsId.getValue() + ":" + agentId.getValue())
+        .getBytes(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * Parse a BTS repair claim payload.
+   *
+   * @param message Message string.
+   * @return ClaimReport or null.
+   */
+  public static ClaimReport parseClaimBts(String message) {
+    return parseClaim(message, PREFIX_CLAIM_BTS);
+  }
+
+  /**
    * Parse a road ID from a BLOCKADE or CLEARED payload.
    *
    * @param message Message string.
@@ -314,5 +384,63 @@ public final class AgentComms {
       }
     }
     return null;
+  }
+
+  /**
+   * Encode a discovered damaged/operational BTS notification.
+   *
+   * @param btsId BTS entity ID.
+   * @param x     X coordinate.
+   * @param y     Y coordinate.
+   * @param state State code.
+   * @return Byte payload.
+   */
+  public static byte[] encodeBts(EntityID btsId, int x, int y, int state) {
+    return (PREFIX_BTS + btsId.getValue() + ":" + x + ":" + y + ":" + state)
+        .getBytes(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * Encode a restored BTS notification.
+   *
+   * @param btsId Restored BTS entity ID.
+   * @return Byte payload.
+   */
+  public static byte[] encodeBtsRestored(EntityID btsId) {
+    return (PREFIX_BTS_RESTORED + btsId.getValue()).getBytes(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * Parse a BTS notification.
+   *
+   * @param message Message string.
+   * @return BtsReport, or null if malformed.
+   */
+  public static BtsReport parseBts(String message) {
+    if (message != null && message.startsWith(PREFIX_BTS)) {
+      String[] parts = message.substring(PREFIX_BTS.length()).split(":");
+      if (parts.length >= 4) {
+        try {
+          EntityID btsId = new EntityID(Integer.parseInt(parts[0].trim()));
+          int x = Integer.parseInt(parts[1].trim());
+          int y = Integer.parseInt(parts[2].trim());
+          int state = Integer.parseInt(parts[3].trim());
+          return new BtsReport(btsId, x, y, state);
+        } catch (NumberFormatException e) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Parse a restored BTS notification.
+   *
+   * @param message Message string.
+   * @return EntityID of restored BTS, or null if malformed.
+   */
+  public static EntityID parseBtsRestored(String message) {
+    return parseRoadId(message, PREFIX_BTS_RESTORED);
   }
 }

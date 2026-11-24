@@ -27,6 +27,10 @@ public final class TelecomRegistry {
   private volatile List<telecom.brigade.BrigadeUnit> brigadeUnits = Collections.emptyList();
   private final java.util.Set<rescuecore2.worldmodel.EntityID> restorationBlockedRoads =
       java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private final java.util.Set<rescuecore2.worldmodel.EntityID> restorationAgents =
+      java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private final java.util.Map<rescuecore2.worldmodel.EntityID, telecom.agent.AgentKnowledge> agentKnowledgeMap =
+      new java.util.concurrent.ConcurrentHashMap<>();
   private final java.util.Queue<telecom.brigade.WorkOrder> workOrderQueue =
       new java.util.concurrent.ConcurrentLinkedQueue<>();
 
@@ -56,6 +60,18 @@ public final class TelecomRegistry {
     btsList.clear();
     btsList.addAll(bts);
     snapshot = List.copyOf(btsList);
+  }
+
+  /**
+   * Register a single BTS (e.g. deployed COW or dynamically placed tower).
+   *
+   * @param bts The BTS to add.
+   */
+  public void register(BTS bts) {
+    if (bts != null) {
+      btsList.add(bts);
+      snapshot = List.copyOf(btsList);
+    }
   }
 
   /**
@@ -128,6 +144,36 @@ public final class TelecomRegistry {
   }
 
   /**
+   * Register an autonomous restoration agent instance.
+   *
+   * @param agentId The agent entity ID.
+   */
+  public void registerRestorationAgent(rescuecore2.worldmodel.EntityID agentId) {
+    if (agentId != null) {
+      restorationAgents.add(agentId);
+    }
+  }
+
+  /**
+   * Check if an agent ID belongs to a registered autonomous restoration agent.
+   *
+   * @param agentId The agent entity ID.
+   * @return True if the ID is a restoration agent.
+   */
+  public boolean isRestorationAgent(rescuecore2.worldmodel.EntityID agentId) {
+    return agentId != null && restorationAgents.contains(agentId);
+  }
+
+  /**
+   * Check if autonomous restoration agents are active in this scenario.
+   *
+   * @return True if one or more autonomous restoration agents are registered.
+   */
+  public boolean hasAutonomousRestorationAgents() {
+    return !restorationAgents.isEmpty();
+  }
+
+  /**
    * Submit a restoration work order into the queue for restoration agents.
    *
    * @param order The work order.
@@ -157,6 +203,27 @@ public final class TelecomRegistry {
   }
 
   /**
+   * Update the distributed knowledge base for an agent.
+   *
+   * @param knowledge The agent's knowledge snapshot.
+   */
+  public void updateAgentKnowledge(telecom.agent.AgentKnowledge knowledge) {
+    if (knowledge != null && knowledge.getAgentId() != null) {
+      agentKnowledgeMap.put(knowledge.getAgentId(), knowledge);
+    }
+  }
+
+  /**
+   * Get the distributed knowledge base for an agent.
+   *
+   * @param agentId The agent entity ID.
+   * @return The agent's knowledge base, or null if unrecorded.
+   */
+  public telecom.agent.AgentKnowledge getAgentKnowledge(rescuecore2.worldmodel.EntityID agentId) {
+    return agentId != null ? agentKnowledgeMap.get(agentId) : null;
+  }
+
+  /**
    * Clear the registry (simulator shutdown / reset between runs).
    */
   public void clear() {
@@ -164,6 +231,8 @@ public final class TelecomRegistry {
     snapshot = Collections.emptyList();
     brigadeUnits = Collections.emptyList();
     restorationBlockedRoads.clear();
+    restorationAgents.clear();
     workOrderQueue.clear();
+    agentKnowledgeMap.clear();
   }
 }
