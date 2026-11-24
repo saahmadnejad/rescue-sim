@@ -160,14 +160,21 @@ public class TelecomRestorationAgent extends StandardAgent<Civilian> {
         if (r.isBlockadesDefined() && r.getBlockades() != null && !r.getBlockades().isEmpty()) {
           if (!knownBlockedRoads.contains(r.getID())) {
             knownBlockedRoads.add(r.getID());
-            broadcastComms(time, AgentComms.encodeBlockade(r.getID()));
+            byte[] blkData = AgentComms.encodeBlockade(r.getID());
+            broadcastComms(time, blkData);
+            if (knowledge != null) {
+              knowledge.addUnrelatedFact(AgentKnowledge.FactType.BLOCKADE, r.getID(),
+                  "Road #" + r.getID().getValue() + " blocked", time, blkData);
+            }
           }
         } else if (knownBlockedRoads.contains(r.getID())) {
           knownBlockedRoads.remove(r.getID());
           if (r.getID().equals(blockedRoadId)) {
             isBlocked = false;
             blockedRoadId = null;
-            TelecomRegistry.getInstance().clearRestorationBlockedRoad(r.getID());
+          }
+          if (knowledge != null) {
+            knowledge.removeUnrelatedFact(AgentKnowledge.FactType.BLOCKADE, r.getID());
           }
           broadcastComms(time, AgentComms.encodeCleared(r.getID()));
         }
@@ -202,8 +209,7 @@ public class TelecomRestorationAgent extends StandardAgent<Civilian> {
     BTS nearbyDamagedBts = findNearbyDamagedBts(30000);
     if (nearbyDamagedBts != null) {
       if (currentOrder == null || targetAreaId == null || !targetAreaId.equals(me.getPosition())) {
-        WorkOrder.Kind kind = (nearbyDamagedBts.getState() == BTS.State.DESTROYED)
-            ? WorkOrder.Kind.COW_DEPLOY : WorkOrder.Kind.REPAIR;
+        WorkOrder.Kind kind = classifyOutageKind(nearbyDamagedBts);
         currentOrder = new WorkOrder(kind, nearbyDamagedBts.getX(), nearbyDamagedBts.getY());
         startX = me.getX();
         startY = me.getY();
@@ -327,10 +333,12 @@ public class TelecomRestorationAgent extends StandardAgent<Civilian> {
           isBlocked = true;
           blockedRoadId = currentPos;
           knownBlockedRoads.add(currentPos);
-          TelecomRegistry.getInstance().reportRestorationBlockedRoad(currentPos);
-          broadcastComms(time, AgentComms.encodeBlockade(currentPos));
+          byte[] blkData = AgentComms.encodeBlockade(currentPos);
+          broadcastComms(time, blkData);
           broadcastComms(time, AgentComms.encodeRestoreBlocked(currentPos, targetAreaId));
           if (knowledge != null) {
+            knowledge.addUnrelatedFact(AgentKnowledge.FactType.BLOCKADE, currentPos,
+                "Road #" + currentPos.getValue() + " blocked", time, blkData);
             knowledge.setStatus("Blocked at Road #" + currentPos.getValue() + " (waiting for Police to clear)");
             TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
           }
@@ -356,10 +364,12 @@ public class TelecomRestorationAgent extends StandardAgent<Civilian> {
             knownBlockedRoads.add(nextRoadId);
             isBlocked = true;
             blockedRoadId = nextRoadId;
-            TelecomRegistry.getInstance().reportRestorationBlockedRoad(nextRoadId);
-            broadcastComms(time, AgentComms.encodeBlockade(nextRoadId));
+            byte[] blkData = AgentComms.encodeBlockade(nextRoadId);
+            broadcastComms(time, blkData);
             broadcastComms(time, AgentComms.encodeRestoreBlocked(nextRoadId, targetAreaId));
             if (knowledge != null) {
+              knowledge.addUnrelatedFact(AgentKnowledge.FactType.BLOCKADE, nextRoadId,
+                  "Road #" + nextRoadId.getValue() + " blocked", time, blkData);
               knowledge.setStatus("Blocked at Road #" + nextRoadId.getValue() + " (waiting for Police to clear)");
               TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
             }
@@ -376,7 +386,6 @@ public class TelecomRestorationAgent extends StandardAgent<Civilian> {
                   && !knownBlockedRoads.contains(detourNext)) {
                 isBlocked = false;
                 blockedRoadId = null;
-                TelecomRegistry.getInstance().clearRestorationBlockedRoad(nextRoadId);
                 if (knowledge != null) {
                   knowledge.setStatus("Moving to BTS restoration area en route (detour)");
                   TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
@@ -464,7 +473,26 @@ public class TelecomRestorationAgent extends StandardAgent<Civilian> {
     }
   }
 
+  private WorkOrder.Kind classifyOutageKind(BTS bts) {
+    if (bts.getState() == BTS.State.DESTROYED) {
+      return WorkOrder.Kind.COW_DEPLOY;
+    }
+    if (bts.getState() == BTS.State.OPERATIONAL && !bts.isServing()) {
+      return WorkOrder.Kind.REFUEL;
+    }
+    return WorkOrder.Kind.REPAIR;
+  }
+
   private void deployCow(int x, int y) {
+    int maxStock = config != null ? config.getIntValue("telecom.brigade.cow-stock", 4) : 4;
+    long deployedCount = TelecomRegistry.getInstance().getAll().stream()
+        .filter(b -> b instanceof COW)
+        .count();
+    if (deployedCount >= maxStock) {
+      Logger.warn("TelecomRestorationAgent " + getID() + ": COW stock exhausted ("
+          + deployedCount + "/" + maxStock + ") — cannot deploy at (" + x + "," + y + ")");
+      return;
+    }
     int cowId = nextCowEntityId++;
     COW cow = new COW(new EntityID(cowId));
     cow.setX(x);
@@ -485,6 +513,9 @@ public class TelecomRestorationAgent extends StandardAgent<Civilian> {
       nearest.setState(BTS.State.OPERATIONAL);
       nearest.setPowerMode(BTS.PowerMode.GENERATOR);
       nearest.setBackhaul(BTS.Backhaul.FIBER);
+      if (!nearest.isFuelHoursDefined() || nearest.getFuelHours() <= 0) {
+        nearest.setFuelHours(72);
+      }
       Logger.info("TelecomRestorationAgent " + getID() + ": BTS #" + nearest.getID()
           + " repaired — operational");
     }

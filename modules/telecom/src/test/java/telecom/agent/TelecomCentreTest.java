@@ -113,7 +113,8 @@ class TelecomCentreTest {
   }
 
   @Test
-  void Given_RestorationBlockedRoadInRegistry_When_Think_Then_BroadcastsEmergencyClearanceAlert() {
+  void Given_RestorationBlockedMessageHeard_When_Think_Then_BroadcastsEmergencyClearanceAlert() {
+    // --- Arrange ---
     EntityID centreId = new EntityID(500);
     PoliceOffice office = new PoliceOffice(centreId);
     office.setX(100);
@@ -124,12 +125,13 @@ class TelecomCentreTest {
     centre.postConnect(mockConnection, centreId, List.of(office), config);
 
     EntityID blockedRoad = new EntityID(333);
-    TelecomRegistry.getInstance().reportRestorationBlockedRoad(blockedRoad);
+    byte[] rstBytes = AgentComms.encodeRestoreBlocked(blockedRoad, new EntityID(200));
+    AKSpeak heardRst = new AKSpeak(new EntityID(900), 5, AgentComms.RADIO_CHANNEL, rstBytes);
 
-    centre.think(4, new ChangeSet(), Collections.emptyList());
+    // --- Act ---
+    centre.think(5, new ChangeSet(), List.of(heardRst));
 
-    TelecomRegistry.getInstance().clearRestorationBlockedRoad(blockedRoad);
-
+    // --- Assert ---
     boolean sentRestoreAlert = sentMessages.stream()
         .filter(m -> m instanceof AKSpeak)
         .map(m -> (AKSpeak) m)

@@ -259,10 +259,20 @@ public class TelecomFireBrigade extends StandardAgent<FireBrigade> {
       }
     }
 
-    // 5. Navigate to nearest known fire avoiding known blocked roads
+    // 5. Navigate to nearest available known fire avoiding known blocked roads
     if (!knownFires.isEmpty() && currentWater > maxExtinguishPower && !isRefilling) {
-      Set<EntityID> fireApproachTargets = new HashSet<>();
+      List<EntityID> preferredFires = new ArrayList<>();
       for (EntityID fId : knownFires) {
+        EntityID claimer = claimedFires.get(fId);
+        if (claimer == null || claimer.equals(getID())) {
+          preferredFires.add(fId);
+        }
+      }
+      if (preferredFires.isEmpty()) {
+        preferredFires.addAll(knownFires);
+      }
+      Set<EntityID> fireApproachTargets = new HashSet<>();
+      for (EntityID fId : preferredFires) {
         StandardEntity ent = model.getEntity(fId);
         if (ent instanceof Building) {
           Building b = (Building) ent;
@@ -276,7 +286,7 @@ public class TelecomFireBrigade extends StandardAgent<FireBrigade> {
           fireApproachTargets.add(fId);
         }
       }
-      EntityID firstTarget = knownFires.iterator().next();
+      EntityID firstTarget = preferredFires.get(0);
       if (knowledge != null) {
         knowledge.setStatus("Moving to fire at Building #" + firstTarget.getValue() + " (" + currentWater + " L water)");
         TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
