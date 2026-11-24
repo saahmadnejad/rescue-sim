@@ -68,9 +68,11 @@ safeKillStale() {
   rm -f "$tmp"
 }
 
-# Delete old logs
-rm -f $LOGDIR/*.log
-safeKillStale
+# Delete old logs and clean up stale processes unless running multiple scenarios concurrently
+if [ -z "$TELECOM_NO_KILL" ]; then
+  rm -f $LOGDIR/*.log
+  safeKillStale
+fi
 
 KERNEL_CONFIG="$CONFIGDIR/kernel-telecom.cfg"
 if [ ! -f "$KERNEL_CONFIG" ]; then
@@ -79,7 +81,7 @@ if [ ! -f "$KERNEL_CONFIG" ]; then
   exit 1
 fi
 
-GUI_OPTION=""
+GUI_OPTION="--nomenu --autorun"
 if [[ $NOGUI == "yes" ]]; then
   GUI_OPTION="--nogui --nomenu --autorun"
 fi
