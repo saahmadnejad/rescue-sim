@@ -56,6 +56,7 @@ public class TelecomFireBrigade extends StandardAgent<FireBrigade> {
   private final Set<EntityID> reportedBts = new HashSet<>();
   private boolean sentVoiceThisTick;
   private AgentKnowledge knowledge;
+  private final AgentRelayHelper.PatrolState patrolState = new AgentRelayHelper.PatrolState();
 
   @Override
   protected EnumSet<StandardEntityURN> getRequestedEntityURNsEnum() {
@@ -419,30 +420,7 @@ public class TelecomFireBrigade extends StandardAgent<FireBrigade> {
   }
 
   private List<EntityID> safePatrolWalk() {
-    EntityID current = me().getPosition();
-    StandardEntity e = model.getEntity(current);
-    if (!(e instanceof Area) || RoadRouter.isRoadBlocked((Area) e)) {
-      return null;
-    }
-    List<EntityID> openNeighbours = new ArrayList<>();
-    List<EntityID> openRoadNeighbours = new ArrayList<>();
-    for (EntityID nId : ((Area) e).getNeighbours()) {
-      if (!knownBlockedRoads.contains(nId)) {
-        StandardEntity nEnt = model.getEntity(nId);
-        if (nEnt instanceof Area && !RoadRouter.isRoadBlocked((Area) nEnt)) {
-          openNeighbours.add(nId);
-          if (nEnt instanceof Road) {
-            openRoadNeighbours.add(nId);
-          }
-        }
-      }
-    }
-    List<EntityID> candidates = !openRoadNeighbours.isEmpty() ? openRoadNeighbours : openNeighbours;
-    if (candidates.isEmpty()) {
-      return null;
-    }
-    Collections.shuffle(candidates, random != null ? random : new Random());
-    return List.of(current, candidates.get(0));
+    return AgentRelayHelper.safePatrolWalk(model, me().getPosition(), knownBlockedRoads, patrolState, random);
   }
 
   @Override

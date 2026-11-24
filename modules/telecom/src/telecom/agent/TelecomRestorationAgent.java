@@ -56,6 +56,7 @@ public class TelecomRestorationAgent extends StandardAgent<Civilian> {
   private final Map<EntityID, EntityID> claimedBts = new ConcurrentHashMap<>();
   private boolean sentVoiceThisTick;
   private AgentKnowledge knowledge;
+  private final AgentRelayHelper.PatrolState patrolState = new AgentRelayHelper.PatrolState();
 
   // Active work order state
   private WorkOrder currentOrder;
@@ -686,25 +687,7 @@ public class TelecomRestorationAgent extends StandardAgent<Civilian> {
   }
 
   private List<EntityID> safePatrolWalk() {
-    EntityID current = me().getPosition();
-    StandardEntity e = model.getEntity(current);
-    if (!(e instanceof Area) || RoadRouter.isRoadBlocked((Area) e)) {
-      return null;
-    }
-    List<EntityID> openNeighbours = new ArrayList<>();
-    for (EntityID nId : ((Area) e).getNeighbours()) {
-      if (!knownBlockedRoads.contains(nId)) {
-        StandardEntity nEnt = model.getEntity(nId);
-        if (nEnt instanceof Area && !RoadRouter.isRoadBlocked((Area) nEnt)) {
-          openNeighbours.add(nId);
-        }
-      }
-    }
-    if (openNeighbours.isEmpty()) {
-      return null;
-    }
-    Collections.shuffle(openNeighbours, random != null ? random : new Random());
-    return List.of(current, openNeighbours.get(0));
+    return AgentRelayHelper.safePatrolWalk(model, me().getPosition(), knownBlockedRoads, patrolState, random);
   }
 
   @Override
