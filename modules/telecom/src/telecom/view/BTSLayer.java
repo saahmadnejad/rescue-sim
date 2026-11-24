@@ -3,8 +3,11 @@ package telecom.view;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Shape;
+import java.awt.Stroke;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
@@ -164,27 +167,16 @@ public class BTSLayer extends AbstractViewLayer {
       }
 
       g.setComposite(AlphaComposite.SrcOver);
-      paintTower(g, cx, cy, bts.isServing(), isCow);
-      g.setColor(LABEL_COLOUR);
-      g.drawString(label(bts, isCow), cx + TOWER_HALF_WIDTH + 1, cy - TOWER_HALF_WIDTH - 1);
+      paintTower(g, cx, cy, bts, isCow);
       result.add(new RenderedObject(bts, hitShape));
     }
 
     // Render active dispatched restoration brigade crews approaching target BTSs
     List<BrigadeUnit> units = registry.getBrigadeUnits();
     if (units != null && !units.isEmpty()) {
-      BasicStroke routeStroke = new BasicStroke(1.5f, BasicStroke.CAP_BUTT,
-          BasicStroke.JOIN_MITER, 10.0f, new float[] {4.0f, 4.0f}, 0.0f);
       for (BrigadeUnit unit : units) {
         int ux = t.xToScreen(unit.getCurrentX());
         int uy = t.yToScreen(unit.getCurrentY());
-        int tx = t.xToScreen(unit.getTargetX());
-        int ty = t.yToScreen(unit.getTargetY());
-
-        // Trajectory route to target BTS
-        g.setColor(unit.isBlocked() ? new Color(200, 50, 40, 160) : BRIGADE_ROUTE_COLOUR);
-        g.setStroke(routeStroke);
-        g.drawLine(ux, uy, tx, ty);
 
         // Vehicle / repair crew marker
         int halfW = 8;
@@ -197,10 +189,6 @@ public class BTSLayer extends AbstractViewLayer {
         g.setColor(Color.WHITE);
         g.draw(vehicleShape);
 
-        // Action and progress status label
-        String actionLabel = formatUnitLabel(unit);
-        g.setColor(unit.isBlocked() ? new Color(180, 20, 20) : Color.DARK_GRAY);
-        g.drawString(actionLabel, ux + halfW + 3, uy + 4);
         result.add(new RenderedObject(unit, vehicleShape));
       }
     }
@@ -209,6 +197,9 @@ public class BTSLayer extends AbstractViewLayer {
   }
 
   private String formatUnitLabel(BrigadeUnit unit) {
+    if (unit.getKind() == null) {
+      return "🚚 Crew on Standby";
+    }
     if (unit.isBlocked()) {
       rescuecore2.worldmodel.EntityID rId = unit.getBlockedRoadId();
       return "⛔ Blocked" + (rId != null ? " at Road #" + rId.getValue() : "") + " (waiting for Police)";
@@ -251,21 +242,75 @@ public class BTSLayer extends AbstractViewLayer {
     return snapshot;
   }
 
-  private void paintTower(Graphics2D g, int cx, int cy, boolean serving, boolean isCow) {
-    Color colour;
+  private void paintTower(Graphics2D g, int cx, int cy, BTS bts, boolean isCow) {
+    boolean serving = bts.isServing();
+    boolean physicallyDamaged = bts.isStateDefined() && bts.getState() != BTS.State.OPERATIONAL;
+    boolean powerOutage = !serving && !physicallyDamaged;
+
+    int badgeR = 10;
+    // 1. Badge circular background: clean white backdrop so icon stands out against map buildings & roads
+    Shape badge = new Ellipse2D.Double(cx - badgeR, cy - badgeR, badgeR * 2, badgeR * 2);
+    g.setColor(new Color(255, 255, 255, 240));
+    g.fill(badge);
+
+    Color borderCol;
     if (serving) {
-      colour = isCow ? COW_COLOUR.darker() : SERVING_COLOUR.darker();
+      borderCol = isCow ? COW_COLOUR.darker() : SERVING_COLOUR.darker();
+    } else if (powerOutage) {
+      borderCol = new Color(220, 140, 10); // Amber for unpowered / backhaul outage
     } else {
-      colour = DOWN_COLOUR.darker();
+      borderCol = DOWN_COLOUR.darker(); // Red for physical damage
     }
-    g.setColor(colour);
-    g.drawLine(cx - TOWER_HALF_WIDTH, cy + TOWER_HALF_WIDTH,
-        cx + TOWER_HALF_WIDTH, cy - TOWER_HALF_WIDTH);
-    g.drawLine(cx - TOWER_HALF_WIDTH, cy - TOWER_HALF_WIDTH,
-        cx + TOWER_HALF_WIDTH, cy + TOWER_HALF_WIDTH);
+    g.setColor(borderCol);
+    Stroke oldStroke = g.getStroke();
+    g.setStroke(new BasicStroke(1.8f));
+    g.draw(badge);
+
     if (isCow) {
-      g.drawRect(cx - TOWER_HALF_WIDTH - 1, cy - TOWER_HALF_WIDTH - 1,
-          2 * TOWER_HALF_WIDTH + 2, 2 * TOWER_HALF_WIDTH + 2);
+      // COW Icon: Mobile relief vehicle with telescopic antenna mast
+      g.setColor(borderCol);
+      // Vehicle chassis & cabin
+      g.fillRect(cx - 6, cy + 1, 12, 5);
+      // Wheels
+      g.setColor(Color.DARK_GRAY);
+      g.fillOval(cx - 5, cy + 5, 3, 3);
+      g.fillOval(cx + 2, cy + 5, 3, 3);
+      // Telescopic mast
+      g.setColor(borderCol);
+      g.drawLine(cx, cy + 1, cx, cy - 6);
+      g.drawLine(cx - 2, cy - 6, cx + 2, cy - 6);
+      if (serving) {
+        g.setColor(new Color(225, 120, 10));
+        g.drawArc(cx - 4, cy - 8, 8, 5, 30, 120);
+      }
+    } else {
+      // Permanent BTS Tower Icon: Transmission lattice tower (A-frame mast)
+      g.setColor(borderCol);
+      // Lattice legs
+      g.drawLine(cx - 5, cy + 7, cx, cy - 4);
+      g.drawLine(cx + 5, cy + 7, cx, cy - 4);
+      // Crossbars
+      g.drawLine(cx - 3, cy + 4, cx + 3, cy + 4);
+      g.drawLine(cx - 2, cy + 1, cx + 2, cy + 1);
+      // Antenna tip
+      g.drawLine(cx, cy - 4, cx, cy - 7);
+      g.fillOval(cx - 1, cy - 8, 3, 3);
+
+      if (serving) {
+        // Radio transmission waves radiating from tip
+        g.setColor(new Color(40, 160, 60));
+        g.drawArc(cx - 5, cy - 10, 10, 6, 35, 110);
+      } else if (powerOutage) {
+        // Power/Backhaul Outage: Amber alert indicator
+        g.setColor(new Color(210, 130, 0));
+        g.drawString("!", cx - 2, cy - 8);
+      } else {
+        // Physical Damage: Red cross slash
+        g.setColor(new Color(200, 30, 20));
+        g.setStroke(new BasicStroke(2.0f));
+        g.drawLine(cx - 6, cy - 6, cx + 6, cy + 6);
+      }
     }
+    g.setStroke(oldStroke);
   }
 }
