@@ -56,6 +56,7 @@ public class TelecomPoliceForce extends StandardAgent<PoliceForce> {
   private EntityID lastClearingRoadId;
   private boolean sentVoiceThisTick;
   private AgentKnowledge knowledge;
+  private final AgentRelayHelper.PatrolState patrolState = new AgentRelayHelper.PatrolState();
 
   @Override
   protected EnumSet<StandardEntityURN> getRequestedEntityURNsEnum() {
@@ -468,23 +469,19 @@ public class TelecomPoliceForce extends StandardAgent<PoliceForce> {
    * @return List of area IDs for move path.
    */
   private List<EntityID> safePatrolWalk() {
+    List<EntityID> walk = AgentRelayHelper.safePatrolWalk(
+        model, me().getPosition(), Collections.emptySet(), patrolState, random);
+    if (walk != null) {
+      return walk;
+    }
     EntityID current = me().getPosition();
     StandardEntity e = model.getEntity(current);
-    if (!(e instanceof Area)) {
-      return null;
+    if (e instanceof Area && !((Area) e).getNeighbours().isEmpty()) {
+      List<EntityID> neighbours = ((Area) e).getNeighbours();
+      int idx = (random != null) ? random.nextInt(neighbours.size()) : 0;
+      return List.of(current, neighbours.get(idx));
     }
-    List<EntityID> neighbours = new ArrayList<>(((Area) e).getNeighbours());
-    if (neighbours.isEmpty()) {
-      return null;
-    }
-    Collections.shuffle(neighbours, random != null ? random : new Random());
-    for (EntityID nId : neighbours) {
-      StandardEntity n = model.getEntity(nId);
-      if (n instanceof Road && !RoadRouter.isRoadBlocked((Road) n)) {
-        return List.of(current, nId);
-      }
-    }
-    return List.of(current, neighbours.get(0));
+    return null;
   }
 
   @Override

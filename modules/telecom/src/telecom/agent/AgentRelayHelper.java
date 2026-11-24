@@ -1,22 +1,29 @@
 package telecom.agent;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import rescuecore2.log.Logger;
 import rescuecore2.standard.entities.AmbulanceTeam;
+import rescuecore2.standard.entities.Area;
 import rescuecore2.standard.entities.Civilian;
 import rescuecore2.standard.entities.FireBrigade;
 import rescuecore2.standard.entities.Human;
 import rescuecore2.standard.entities.PoliceForce;
+import rescuecore2.standard.entities.Road;
 import rescuecore2.standard.entities.StandardEntity;
 import rescuecore2.standard.entities.StandardEntityURN;
 import rescuecore2.standard.entities.StandardWorldModel;
 import rescuecore2.worldmodel.EntityID;
 import telecom.CoverageModel;
 import telecom.TelecomRegistry;
+import telecom.brigade.RoadRouter;
 import telecom.entities.BTS;
 
 /**
@@ -171,5 +178,124 @@ public final class AgentRelayHelper {
       return "Telecom Restoration Agent";
     }
     return null;
+  }
+
+  /**
+   * Per-agent exploratory patrol state so idle agents traverse across the city
+   * instead of oscillating between adjacent roads.
+   */
+  public static final class PatrolState {
+    private static final int MAX_VISITED = 250;
+    private EntityID targetAreaId;
+    private final LinkedHashSet<EntityID> visitedAreas = new LinkedHashSet<>();
+
+    /** Record an area as visited, evicting oldest entries beyond {@code MAX_VISITED}. */
+    public void markVisited(EntityID areaId) {
+      if (areaId == null) {
+        return;
+      }
+      visitedAreas.remove(areaId);
+      visitedAreas.add(areaId);
+      if (visitedAreas.size() > MAX_VISITED) {
+        EntityID oldest = visitedAreas.iterator().next();
+        visitedAreas.remove(oldest);
+      }
+    }
+  }
+
+  /**
+   * Compute a 1-hop exploratory patrol move towards a distant unvisited road,
+   * falling back to an unvisited open neighbour if no distant path is reachable.
+   *
+   * @param model World model.
+   * @param currentPos Agent's current area ID.
+   * @param knownBlockedRoads Known blocked road IDs.
+   * @param state Agent's persistent patrol state.
+   * @param rng Random source (may be null).
+   * @return 2-element path {@code [currentPos, nextId]}, or null if trapped.
+   */
+  public static List<EntityID> safePatrolWalk(
+      StandardWorldModel model,
+      EntityID currentPos,
+      Set<EntityID> knownBlockedRoads,
+      PatrolState state,
+      Random rng) {
+    if (model == null || currentPos == null) {
+      return null;
+    }
+    StandardEntity currEnt = model.getEntity(currentPos);
+    if (!(currEnt instanceof Area) || RoadRouter.isRoadBlocked((Area) currEnt)) {
+      return null;
+    }
+    Random rand = (rng != null) ? rng : new Random();
+    state.markVisited(currentPos);
+
+    if (state.targetAreaId == null
+        || currentPos.equals(state.targetAreaId)
+        || (knownBlockedRoads != null && knownBlockedRoads.contains(state.targetAreaId))) {
+      state.targetAreaId = pickDistantUnvisitedRoad(model, currentPos, knownBlockedRoads, state, rand);
+    }
+
+    if (state.targetAreaId != null) {
+      List<EntityID> path = RoadRouter.findPath(model, currentPos, state.targetAreaId, knownBlockedRoads);
+      if (path != null && path.size() > 1) {
+        EntityID nextId = path.get(1);
+        StandardEntity nextEnt = model.getEntity(nextId);
+        if (nextEnt instanceof Area && !RoadRouter.isRoadBlocked((Area) nextEnt)
+            && (knownBlockedRoads == null || !knownBlockedRoads.contains(nextId))) {
+          return List.of(currentPos, nextId);
+        }
+      }
+      state.targetAreaId = null;
+    }
+
+    // Fallback: pick an unvisited open road neighbour first, then any open neighbour
+    List<EntityID> unvisitedRoads = new ArrayList<>();
+    List<EntityID> openRoads = new ArrayList<>();
+    List<EntityID> openAreas = new ArrayList<>();
+    for (EntityID nId : ((Area) currEnt).getNeighbours()) {
+      if (knownBlockedRoads != null && knownBlockedRoads.contains(nId)) {
+        continue;
+      }
+      StandardEntity nEnt = model.getEntity(nId);
+      if (nEnt instanceof Area && !RoadRouter.isRoadBlocked((Area) nEnt)) {
+        openAreas.add(nId);
+        if (nEnt instanceof Road) {
+          openRoads.add(nId);
+          if (!state.visitedAreas.contains(nId)) {
+            unvisitedRoads.add(nId);
+          }
+        }
+      }
+    }
+    List<EntityID> candidates = !unvisitedRoads.isEmpty() ? unvisitedRoads
+        : !openRoads.isEmpty() ? openRoads : openAreas;
+    if (candidates.isEmpty()) {
+      return null;
+    }
+    return List.of(currentPos, candidates.get(rand.nextInt(candidates.size())));
+  }
+
+  private static EntityID pickDistantUnvisitedRoad(
+      StandardWorldModel model,
+      EntityID currentPos,
+      Set<EntityID> knownBlockedRoads,
+      PatrolState state,
+      Random rand) {
+    List<StandardEntity> roads = new ArrayList<>(model.getEntitiesOfType(StandardEntityURN.ROAD));
+    if (roads.isEmpty()) {
+      return null;
+    }
+    for (int attempt = 0; attempt < 15; attempt++) {
+      StandardEntity cand = roads.get(rand.nextInt(roads.size()));
+      EntityID candId = cand.getID();
+      if (!candId.equals(currentPos)
+          && !state.visitedAreas.contains(candId)
+          && (knownBlockedRoads == null || !knownBlockedRoads.contains(candId))
+          && cand instanceof Area && !RoadRouter.isRoadBlocked((Area) cand)) {
+        return candId;
+      }
+    }
+    return roads.get(rand.nextInt(roads.size())).getID();
   }
 }
