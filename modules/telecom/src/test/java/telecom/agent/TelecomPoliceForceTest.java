@@ -2,8 +2,10 @@ package telecom.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -28,6 +30,8 @@ import rescuecore2.standard.messages.AKClear;
 import rescuecore2.standard.messages.AKMove;
 import rescuecore2.standard.messages.AKSpeak;
 import rescuecore2.worldmodel.ChangeSet;
+import telecom.TelecomRegistry;
+import telecom.entities.BTS;
 import rescuecore2.worldmodel.Entity;
 import rescuecore2.worldmodel.EntityID;
 
@@ -94,6 +98,12 @@ class TelecomPoliceForceTest {
 
     config = new Config();
     config.setValue("clear.repair.distance", "10000");
+    TelecomRegistry.getInstance().clear();
+  }
+
+  @org.junit.jupiter.api.AfterEach
+  void tearDown() {
+    TelecomRegistry.getInstance().clear();
   }
 
   @Test
@@ -140,6 +150,52 @@ class TelecomPoliceForceTest {
   }
 
   @Test
+  void Given_BlockadeOnCurrentRoadBeyondClearDistance_When_Think_Then_MovesTowardsBlockadeSafely() {
+    EntityID roadId = new EntityID(10);
+    EntityID policeId = new EntityID(20);
+    EntityID blockadeId = new EntityID(30);
+
+    Road road = new Road(roadId);
+    road.setX(0);
+    road.setY(0);
+    road.setEdges(new ArrayList<>());
+    road.setBlockades(List.of(blockadeId));
+
+    Blockade blockade = new Blockade(blockadeId);
+    blockade.setPosition(roadId);
+    blockade.setX(15000); // 15 meters away (> 10000mm)
+    blockade.setY(0);
+    blockade.setRepairCost(10);
+    blockade.setApexes(new int[] {14900, -100, 15100, -100, 15100, 100, 14900, 100});
+
+    PoliceForce police = new PoliceForce(policeId);
+    police.setX(0);
+    police.setY(0);
+    police.setPosition(roadId);
+    police.setHP(10000);
+    police.setBuriedness(0);
+
+    List<Entity> entities = List.of(road, blockade, police);
+    TelecomPoliceForce agent = new TelecomPoliceForce();
+    agent.postConnect(mockConnection, policeId, entities, config);
+
+    // Act
+    agent.think(4, new ChangeSet(), Collections.emptyList());
+
+    // Assert: agent must move towards blockade without entering it
+    assertFalse(sentMessages.isEmpty());
+    Message sent = sentMessages.stream()
+        .filter(m -> m instanceof AKMove)
+        .findFirst()
+        .orElse(null);
+    assertNotNull(sent, "Must move towards distant blockade on current road");
+    AKMove move = (AKMove) sent;
+    assertEquals(List.of(roadId), move.getPath());
+    assertTrue(move.getDestinationX() > 0 && move.getDestinationX() < 15000,
+        "Target coordinates must be safely in front of the blockade");
+  }
+
+  @Test
   void Given_DistantBlockade_When_Think_Then_SendsAKMoveTowardsBlockedRoad() {
     // --- Arrange ---
     EntityID r1Id = new EntityID(1);
@@ -150,6 +206,7 @@ class TelecomPoliceForceTest {
     Road r1 = new Road(r1Id);
     r1.setX(0);
     r1.setY(0);
+    r1.setEdges(new ArrayList<>());
     r1.setEdges(List.of(new Edge(0, 0, 10, 0)));
 
     Road r2 = new Road(r2Id);
@@ -206,6 +263,7 @@ class TelecomPoliceForceTest {
     Road r1 = new Road(r1Id);
     r1.setX(0);
     r1.setY(0);
+    r1.setEdges(new ArrayList<>());
     r1.setEdges(List.of(new Edge(0, 0, 10, 0)));
 
     Road r2 = new Road(r2Id);
@@ -263,6 +321,7 @@ class TelecomPoliceForceTest {
     Road r1 = new Road(r1Id);
     r1.setX(0);
     r1.setY(0);
+    r1.setEdges(new ArrayList<>());
     r1.setEdges(List.of(new Edge(0, 0, 10, 0)));
 
     Civilian civ = new Civilian(civId);
@@ -302,5 +361,48 @@ class TelecomPoliceForceTest {
         .count();
     assertTrue(speakCount >= 3,
         "Police force must broadcast civilian and fire reports across radio (and voice obeying rate limits)");
+  }
+
+  @Test
+  void Given_DamagedBtsObserved_When_Think_Then_BroadcastsBtsDiscovered() {
+    EntityID r1Id = new EntityID(1);
+    EntityID policeId = new EntityID(100);
+    EntityID btsId = new EntityID(555);
+
+    Road r1 = new Road(r1Id);
+    r1.setX(0);
+    r1.setY(0);
+    r1.setEdges(new ArrayList<>());
+
+    PoliceForce police = new PoliceForce(policeId);
+    police.setX(0);
+    police.setY(0);
+    police.setPosition(r1Id);
+    police.setHP(10000);
+    police.setBuriedness(0);
+
+    // Register a damaged BTS near the officer (e.g. 5m away)
+    BTS bts = new BTS(btsId);
+    bts.setX(5000);
+    bts.setY(0);
+    bts.setState(BTS.State.DAMAGED);
+    TelecomRegistry.getInstance().register(bts);
+
+    List<Entity> entities = List.of(r1, police);
+    TelecomPoliceForce agent = new TelecomPoliceForce();
+    agent.postConnect(mockConnection, policeId, entities, config);
+
+    // Act
+    agent.think(4, new ChangeSet(), Collections.emptyList());
+
+    // Assert: must broadcast BTS report
+    boolean sentBtsReport = sentMessages.stream()
+        .filter(m -> m instanceof AKSpeak)
+        .map(m -> (AKSpeak) m)
+        .anyMatch(s -> {
+          String content = new String(s.getContent(), StandardCharsets.UTF_8);
+          return content.startsWith(AgentComms.PREFIX_BTS + "555");
+        });
+    assertTrue(sentBtsReport, "Police force must broadcast discovered damaged BTS location to telecom crew");
   }
 }

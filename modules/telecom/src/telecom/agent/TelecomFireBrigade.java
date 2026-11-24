@@ -17,10 +17,12 @@ import rescuecore2.messages.Command;
 import rescuecore2.misc.geometry.GeometryTools2D;
 import rescuecore2.misc.geometry.Point2D;
 import rescuecore2.standard.components.StandardAgent;
+import rescuecore2.standard.entities.AmbulanceTeam;
 import rescuecore2.standard.entities.Area;
 import rescuecore2.standard.entities.Building;
 import rescuecore2.standard.entities.Civilian;
 import rescuecore2.standard.entities.FireBrigade;
+import rescuecore2.standard.entities.PoliceForce;
 import rescuecore2.standard.entities.Refuge;
 import rescuecore2.standard.entities.Road;
 import rescuecore2.standard.entities.StandardEntity;
@@ -29,7 +31,9 @@ import rescuecore2.standard.messages.AKSpeak;
 import rescuecore2.worldmodel.ChangeSet;
 import rescuecore2.worldmodel.EntityID;
 import sample.SampleSearch;
+import telecom.TelecomRegistry;
 import telecom.brigade.RoadRouter;
+import telecom.entities.BTS;
 
 /**
  * Autonomous Fire Brigade agent for telecom scenarios.
@@ -43,11 +47,15 @@ public class TelecomFireBrigade extends StandardAgent<FireBrigade> {
   private Random random;
   private int maxExtinguishDistance;
   private int maxExtinguishPower;
+  private int maxWater = 15000;
+  private boolean isRefilling = false;
   private final Set<EntityID> knownFires = new HashSet<>();
   private final Map<EntityID, EntityID> claimedFires = new HashMap<>(); // bldgId -> fireBrigadeId
   private final Set<EntityID> knownBlockedRoads = new HashSet<>();
   private final Set<EntityID> reportedCivilians = new HashSet<>();
+  private final Set<EntityID> reportedBts = new HashSet<>();
   private boolean sentVoiceThisTick;
+  private AgentKnowledge knowledge;
 
   @Override
   protected EnumSet<StandardEntityURN> getRequestedEntityURNsEnum() {
@@ -61,6 +69,9 @@ public class TelecomFireBrigade extends StandardAgent<FireBrigade> {
     random = config.getRandom();
     maxExtinguishDistance = config.getIntValue("fire.extinguish.max-distance", 50000);
     maxExtinguishPower = config.getIntValue("fire.extinguish.max-sum", 3000);
+    maxWater = config.getIntValue("fire.tank.maximum", 15000);
+    knowledge = new AgentKnowledge(getID(), "Fire Brigade");
+    TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
     Logger.info("TelecomFireBrigade " + getID() + " connected to scenario");
   }
 
@@ -98,10 +109,29 @@ public class TelecomFireBrigade extends StandardAgent<FireBrigade> {
         EntityID bRoad = AgentComms.parseRoadId(msg, AgentComms.PREFIX_BLOCKADE);
         if (bRoad != null) {
           knownBlockedRoads.add(bRoad);
+          if (knowledge != null) {
+            knowledge.addUnrelatedFact(AgentKnowledge.FactType.BLOCKADE, bRoad,
+                "Blockade at Road #" + bRoad.getValue(), time, speak.getContent());
+          }
         }
         EntityID cRoad = AgentComms.parseRoadId(msg, AgentComms.PREFIX_CLEARED);
         if (cRoad != null) {
           knownBlockedRoads.remove(cRoad);
+          if (knowledge != null) {
+            knowledge.removeUnrelatedFact(AgentKnowledge.FactType.BLOCKADE, cRoad);
+          }
+        }
+        AgentComms.BtsReport bts = AgentComms.parseBts(msg);
+        if (bts != null && knowledge != null) {
+          String s = bts.getState() == 2 ? "DAMAGED" : "DESTROYED";
+          knowledge.addUnrelatedFact(AgentKnowledge.FactType.BTS_OUTAGE, bts.getBtsId(),
+              "BTS #" + bts.getBtsId().getValue() + " (" + s + ")", time, speak.getContent());
+        }
+        AgentComms.CivilianReport civ = AgentComms.parseCivilian(msg);
+        if (civ != null && knowledge != null) {
+          knowledge.addUnrelatedFact(AgentKnowledge.FactType.CIVILIAN, civ.getCivilianId(),
+              "Civilian #" + civ.getCivilianId().getValue() + " injured at #" + civ.getLocationId().getValue(),
+              time, speak.getContent());
         }
         AgentComms.ClaimReport claim = AgentComms.parseClaim(msg, AgentComms.PREFIX_CLAIM_FIRE);
         if (claim != null) {
@@ -128,11 +158,19 @@ public class TelecomFireBrigade extends StandardAgent<FireBrigade> {
         if (r.isBlockadesDefined() && r.getBlockades() != null && !r.getBlockades().isEmpty()) {
           if (!knownBlockedRoads.contains(r.getID())) {
             knownBlockedRoads.add(r.getID());
-            broadcastComms(time, AgentComms.encodeBlockade(r.getID()));
+            byte[] blkData = AgentComms.encodeBlockade(r.getID());
+            broadcastComms(time, blkData);
+            if (knowledge != null) {
+              knowledge.addUnrelatedFact(AgentKnowledge.FactType.BLOCKADE, r.getID(),
+                  "Road #" + r.getID().getValue() + " blocked", time, blkData);
+            }
           }
         } else if (knownBlockedRoads.contains(r.getID())) {
           knownBlockedRoads.remove(r.getID());
           broadcastComms(time, AgentComms.encodeCleared(r.getID()));
+          if (knowledge != null) {
+            knowledge.removeUnrelatedFact(AgentKnowledge.FactType.BLOCKADE, r.getID());
+          }
         }
       } else if (ent instanceof Civilian) {
         Civilian civ = (Civilian) ent;
@@ -141,51 +179,195 @@ public class TelecomFireBrigade extends StandardAgent<FireBrigade> {
               || (civ.isDamageDefined() && civ.getDamage() > 0) || civ.getHP() < 10000;
           if (needsHelp && !reportedCivilians.contains(civ.getID())) {
             reportedCivilians.add(civ.getID());
-            broadcastComms(time, AgentComms.encodeCivilian(civ.getID(), civ.getPosition(),
-                civ.getHP(), civ.isBuriednessDefined() ? civ.getBuriedness() : 0));
+            byte[] civData = AgentComms.encodeCivilian(civ.getID(), civ.getPosition(),
+                civ.getHP(), civ.isBuriednessDefined() ? civ.getBuriedness() : 0);
+            broadcastComms(time, civData);
+            if (knowledge != null) {
+              knowledge.addUnrelatedFact(AgentKnowledge.FactType.CIVILIAN, civ.getID(),
+                  "Civilian #" + civ.getID().getValue() + " injured at #" + civ.getPosition().getValue(),
+                  time, civData);
+            }
           }
         }
       }
     }
 
-    // 3. Check water tank: refill at refuge if empty
+    // 2b. Check if any BTS is nearby while traversing; communicate damaged BTS to telecom team
+    AgentRelayHelper.spotNearbyDamagedBts(
+        time, me, reportedBts, knowledge,
+        data -> broadcastComms(time, data),
+        "TelecomFireBrigade " + getID());
+
+    // 2c. Exchange and purge unrelated data when meeting relevant agents or inside cell coverage
+    exchangeUnrelatedKnowledge(time, me);
+
+    // 3. Water tank management & Refuge refill
     int currentWater = me.isWaterDefined() ? me.getWater() : 0;
-    if (currentWater == 0) {
-      List<EntityID> refugeIds = getRefugeIds();
-      List<EntityID> pathToRefuge = RoadRouter.findPathToAny(model, me.getPosition(),
-          refugeIds, knownBlockedRoads);
-      if (pathToRefuge != null && !pathToRefuge.isEmpty()) {
-        sendMove(time, pathToRefuge);
-        return;
+    StandardEntity currentLoc = location();
+    boolean atRefuge = currentLoc instanceof Refuge;
+
+    if (currentWater <= maxExtinguishPower) {
+      isRefilling = true;
+    } else if (currentWater >= maxWater) {
+      isRefilling = false;
+    }
+
+    if (isRefilling) {
+      if (atRefuge) {
+        if (currentWater < maxWater) {
+          Logger.info("TelecomFireBrigade " + getID() + " refilling water at Refuge #"
+              + currentLoc.getID() + " (" + currentWater + "/" + maxWater + ")");
+          if (knowledge != null) {
+            knowledge.setStatus("Refilling water at Refuge #" + currentLoc.getID().getValue()
+                + " (" + currentWater + "/" + maxWater + " L)");
+            TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
+          }
+          sendRest(time);
+          return;
+        } else {
+          isRefilling = false;
+        }
+      } else {
+        List<EntityID> refugeIds = getRefugeIds();
+        if (!refugeIds.isEmpty()) {
+          if (knowledge != null) {
+            knowledge.setStatus("Moving to Refuge for refill (" + currentWater + " L remaining)");
+            TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
+          }
+          if (safeAdvanceTowards(time, refugeIds, "refuge for refill")) {
+            return;
+          }
+        }
       }
     }
 
-    // 4. Extinguish fires in range
-    Building targetBuilding = findTargetFireInRange();
-    if (targetBuilding != null) {
-      int power = Math.min(currentWater, maxExtinguishPower);
-      Logger.info("TelecomFireBrigade " + getID() + " extinguishing building "
-          + targetBuilding.getID() + " with power " + power);
-      broadcastComms(time, AgentComms.encodeClaimFire(targetBuilding.getID(), getID()));
-      sendExtinguish(time, targetBuilding.getID(), power);
-      return;
+    // 4. Extinguish fires in range (only if water is available)
+    if (currentWater > 0) {
+      Building targetBuilding = findTargetFireInRange();
+      if (targetBuilding != null) {
+        int power = Math.min(currentWater, maxExtinguishPower);
+        Logger.info("TelecomFireBrigade " + getID() + " extinguishing building "
+            + targetBuilding.getID() + " with power " + power);
+        if (knowledge != null) {
+          knowledge.setStatus("Extinguishing fire at Building #" + targetBuilding.getID().getValue()
+              + " (Power: " + power + ")");
+          TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
+        }
+        broadcastComms(time, AgentComms.encodeClaimFire(targetBuilding.getID(), getID()));
+        sendExtinguish(time, targetBuilding.getID(), power);
+        return;
+      }
     }
 
     // 5. Navigate to nearest known fire avoiding known blocked roads
-    if (!knownFires.isEmpty()) {
-      List<EntityID> pathToFire = RoadRouter.findPathToAny(model, me.getPosition(),
-          knownFires, knownBlockedRoads);
-      if (pathToFire != null && !pathToFire.isEmpty()) {
-        sendMove(time, pathToFire);
+    if (!knownFires.isEmpty() && currentWater > maxExtinguishPower && !isRefilling) {
+      Set<EntityID> fireApproachTargets = new HashSet<>();
+      for (EntityID fId : knownFires) {
+        StandardEntity ent = model.getEntity(fId);
+        if (ent instanceof Building) {
+          Building b = (Building) ent;
+          List<EntityID> neighbours = b.getNeighbours();
+          if (neighbours != null && !neighbours.isEmpty()) {
+            fireApproachTargets.addAll(neighbours);
+          } else {
+            fireApproachTargets.add(fId);
+          }
+        } else {
+          fireApproachTargets.add(fId);
+        }
+      }
+      EntityID firstTarget = knownFires.iterator().next();
+      if (knowledge != null) {
+        knowledge.setStatus("Moving to fire at Building #" + firstTarget.getValue() + " (" + currentWater + " L water)");
+        TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
+      }
+      if (safeAdvanceTowards(time, fireApproachTargets, "fire")) {
         return;
       }
     }
 
-    // 6. Explore buildings and patrol
-    List<EntityID> walk = randomWalk();
+    // 6. Explore buildings and patrol safely
+    List<EntityID> walk = safePatrolWalk();
     if (walk != null && !walk.isEmpty()) {
+      if (knowledge != null) {
+        knowledge.setStatus("Patrolling / Searching for fires (" + currentWater + " L water)");
+        TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
+      }
       sendMove(time, walk);
+    } else {
+      if (knowledge != null) {
+        knowledge.setStatus("Standby / Resting");
+        TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
+      }
+      sendRest(time);
     }
+  }
+
+  private void exchangeUnrelatedKnowledge(int time, FireBrigade me) {
+    if (knowledge == null) {
+      return;
+    }
+    sentVoiceThisTick = AgentRelayHelper.exchangeUnrelatedKnowledge(
+        model, time, me, knowledge, sentVoiceThisTick,
+        (ch, data) -> sendSpeak(time, ch, data),
+        "TelecomFireBrigade " + getID());
+
+    // Update core mission knowledge
+    List<String> core = new ArrayList<>();
+    core.add("Active Fires Known: " + knownFires.size());
+    for (EntityID fid : knownFires) {
+      core.add("• Building #" + fid.getValue());
+    }
+    knowledge.setCoreKnowledge(core);
+    TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
+  }
+
+  /**
+   * Safely advance 1 hop towards target areas, discovering blockades and stopping before entering them.
+   *
+   * @param time Timestep.
+   * @param targets Target area IDs.
+   * @param label Debug label.
+   * @return True if a move command was dispatched.
+   */
+  private boolean safeAdvanceTowards(int time, Collection<EntityID> targets, String label) {
+    EntityID currentPos = me().getPosition();
+    StandardEntity currEnt = model.getEntity(currentPos);
+    if (currEnt instanceof Area && RoadRouter.isRoadBlocked((Area) currEnt)) {
+      // Current road is blocked: cannot move until cleared
+      return false;
+    }
+    List<EntityID> path = RoadRouter.findPathToAny(model, currentPos, targets, knownBlockedRoads);
+    if (path == null || path.size() <= 1) {
+      // Fallback: advance along road network as far as safely possible
+      path = RoadRouter.findPathToAny(model, currentPos, targets, Collections.emptySet());
+      if (path == null || path.size() <= 1) {
+        return false;
+      }
+    }
+    EntityID nextRoadId = path.get(1);
+    StandardEntity nextEnt = model.getEntity(nextRoadId);
+    boolean nextBlocked = (nextEnt instanceof Area && RoadRouter.isRoadBlocked((Area) nextEnt))
+        || knownBlockedRoads.contains(nextRoadId);
+    if (nextBlocked) {
+      // Blockade discovered ahead: halt and avoid entering
+      knownBlockedRoads.add(nextRoadId);
+      broadcastComms(time, AgentComms.encodeBlockade(nextRoadId));
+      // Try detour
+      List<EntityID> detour = RoadRouter.findPathToAny(model, currentPos, targets, knownBlockedRoads);
+      if (detour != null && detour.size() > 1) {
+        EntityID detourNext = detour.get(1);
+        StandardEntity detourEnt = model.getEntity(detourNext);
+        if (detourEnt instanceof Area && !RoadRouter.isRoadBlocked((Area) detourEnt)
+            && !knownBlockedRoads.contains(detourNext)) {
+          sendMove(time, List.of(currentPos, detourNext));
+          return true;
+        }
+      }
+      return false;
+    }
+    sendMove(time, List.of(currentPos, nextRoadId));
+    return true;
   }
 
   private void broadcastComms(int time, byte[] data) {
@@ -212,7 +394,9 @@ public class TelecomFireBrigade extends StandardAgent<FireBrigade> {
     for (StandardEntity ent : model.getObjectsInRange(me().getX(), me().getY(), maxExtinguishDistance)) {
       if (ent instanceof Building) {
         Building b = (Building) ent;
-        if (b.isOnFire()) {
+        boolean onFire = b.isOnFire()
+            || (knownFires.contains(b.getID()) && (!b.isFierynessDefined() || (b.getFieryness() > 0 && b.getFieryness() < 4)));
+        if (onFire) {
           double d = GeometryTools2D.getDistance(myPos, new Point2D(b.getX(), b.getY()));
           if (d <= maxExtinguishDistance && d < bestDist) {
             bestDist = d;
@@ -224,31 +408,31 @@ public class TelecomFireBrigade extends StandardAgent<FireBrigade> {
     return best;
   }
 
-  private List<EntityID> randomWalk() {
-    List<EntityID> result = new ArrayList<>();
+  private List<EntityID> safePatrolWalk() {
     EntityID current = me().getPosition();
-    for (int i = 0; i < 10; ++i) {
-      StandardEntity e = model.getEntity(current);
-      if (!(e instanceof Area)) {
-        break;
-      }
-      List<EntityID> openNeighbours = new ArrayList<>();
-      for (EntityID nId : ((Area) e).getNeighbours()) {
-        if (!knownBlockedRoads.contains(nId)) {
-          StandardEntity nEnt = model.getEntity(nId);
-          if (nEnt instanceof Area && !RoadRouter.isRoadBlocked((Area) nEnt)) {
-            openNeighbours.add(nId);
+    StandardEntity e = model.getEntity(current);
+    if (!(e instanceof Area) || RoadRouter.isRoadBlocked((Area) e)) {
+      return null;
+    }
+    List<EntityID> openNeighbours = new ArrayList<>();
+    List<EntityID> openRoadNeighbours = new ArrayList<>();
+    for (EntityID nId : ((Area) e).getNeighbours()) {
+      if (!knownBlockedRoads.contains(nId)) {
+        StandardEntity nEnt = model.getEntity(nId);
+        if (nEnt instanceof Area && !RoadRouter.isRoadBlocked((Area) nEnt)) {
+          openNeighbours.add(nId);
+          if (nEnt instanceof Road) {
+            openRoadNeighbours.add(nId);
           }
         }
       }
-      if (openNeighbours.isEmpty()) {
-        break;
-      }
-      Collections.shuffle(openNeighbours, random != null ? random : new Random());
-      current = openNeighbours.get(0);
-      result.add(current);
     }
-    return result;
+    List<EntityID> candidates = !openRoadNeighbours.isEmpty() ? openRoadNeighbours : openNeighbours;
+    if (candidates.isEmpty()) {
+      return null;
+    }
+    Collections.shuffle(candidates, random != null ? random : new Random());
+    return List.of(current, candidates.get(0));
   }
 
   @Override

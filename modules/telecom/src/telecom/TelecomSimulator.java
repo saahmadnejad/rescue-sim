@@ -107,14 +107,14 @@ public class TelecomSimulator extends StandardSimulator {
           + damageModelInitialisedScenario() + ")");
     }
     damageModel.step(TelecomRegistry.getInstance().getAll());
-    if (policy != null) {
-      for (WorkOrder order : policy.plan(TelecomRegistry.getInstance().getAll(), civilianLocations())) {
-        TelecomRegistry.getInstance().submitWorkOrder(order);
+    // If autonomous restoration agents are registered, they discover and repair towers organically.
+    // Otherwise fallback to policy planning and in-process brigade execution for headless/legacy scenarios.
+    if (!TelecomRegistry.getInstance().hasAutonomousRestorationAgents()) {
+      if (policy != null) {
+        for (WorkOrder order : policy.plan(TelecomRegistry.getInstance().getAll(), civilianLocations())) {
+          TelecomRegistry.getInstance().submitWorkOrder(order);
+        }
       }
-    }
-    // If autonomous restoration agents are registered, they pull orders from registry.
-    // Otherwise fallback to in-process brigade execution.
-    if (TelecomRegistry.getInstance().getBrigadeUnits().isEmpty()) {
       WorkOrder o;
       while ((o = TelecomRegistry.getInstance().pollWorkOrder()) != null) {
         brigade.submit(o);
