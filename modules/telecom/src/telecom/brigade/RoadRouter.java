@@ -126,11 +126,13 @@ public final class RoadRouter {
           continue;
         }
         StandardEntity neighbour = world.getEntity(neighbourId);
+        if (!(neighbour instanceof Area)) {
+          continue;
+        }
         if (!(neighbour instanceof Road) && !targetId.equals(neighbourId)) {
           continue;
         }
-        Road nextRoad = (Road) neighbour;
-        if (isRoadBlocked(nextRoad)) {
+        if (isRoadBlocked((Area) neighbour)) {
           continue;
         }
         visited.add(neighbourId);

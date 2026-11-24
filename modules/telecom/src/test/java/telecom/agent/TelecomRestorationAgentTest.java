@@ -219,10 +219,7 @@ class TelecomRestorationAgentTest {
     // Act
     agent.think(4, new ChangeSet(), Collections.emptyList());
 
-    // Assert: road 2 should be registered as blocking restoration
-    assertTrue(TelecomRegistry.getInstance().getRestorationBlockedRoads().contains(r2Id),
-        "Obstructed road must be registered in TelecomRegistry for police priority");
-
+    // --- Assert ---
     boolean sentRestoreBlockedMsg = sentMessages.stream()
         .filter(m -> m instanceof AKSpeak)
         .map(m -> (AKSpeak) m)

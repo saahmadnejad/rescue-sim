@@ -99,19 +99,7 @@ public class TelecomCentre extends StandardAgent<Building> {
       }
     }
 
-    // 2. Cross-check TelecomRegistry for restoration crews needing clearance
-    Set<EntityID> restorationBlocked = TelecomRegistry.getInstance().getRestorationBlockedRoads();
-    for (EntityID roadId : restorationBlocked) {
-      if (!priorityRestorationRoads.contains(roadId)) {
-        priorityRestorationRoads.add(roadId);
-        knownBlockades.add(roadId);
-        Logger.info("TelecomCentre " + getID() + " alerting Police Forces to clear road #"
-            + roadId + " for Telecom Restoration Crew");
-        broadcastComms(time, AgentComms.encodeRestoreBlocked(roadId, null));
-      }
-    }
-
-    // 3. Periodic command dispatch & knowledge synchronization
+    // 2. Periodic command dispatch & knowledge synchronization
     // Every 5 timesteps, broadcast situational summaries so newly covered agents sync up
     if (time % 5 == 0) {
       StandardEntityURN myUrn = me().getStandardURN();

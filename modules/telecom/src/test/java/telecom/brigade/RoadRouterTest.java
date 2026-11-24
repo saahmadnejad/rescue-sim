@@ -270,6 +270,25 @@ class RoadRouterTest {
         "Should route around blocked road towards alternative reachable target");
   }
 
+  @Test
+  void Given_NonRoadTargetArea_When_FindUnblockedPath_Then_ReturnsPathWithoutClassCastException() {
+    // --- Arrange ---
+    Road r1 = createRoad(1, 0, 0);
+    Building b2 = new Building(new EntityID(2));
+    b2.setX(1000);
+    b2.setY(0);
+    b2.setEdges(new ArrayList<>(List.of(new Edge(1000, 0, 0, 0, r1.getID()))));
+    r1.setEdges(new ArrayList<>(List.of(new Edge(0, 0, 1000, 0, b2.getID()))));
+    world.addEntity(r1);
+    world.addEntity(b2);
+
+    // --- Act ---
+    List<EntityID> path = RoadRouter.findUnblockedPath(world, r1.getID(), b2.getID());
+
+    // --- Assert ---
+    assertEquals(List.of(r1.getID(), b2.getID()), path);
+  }
+
   private Road createRoad(int id, int x, int y) {
     Road r = new Road(new EntityID(id));
     r.setX(x);

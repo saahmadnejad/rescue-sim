@@ -15,6 +15,7 @@ import rescuecore2.standard.entities.StandardEntity;
 import rescuecore2.standard.entities.StandardEntityURN;
 import rescuecore2.standard.entities.StandardWorldModel;
 import rescuecore2.worldmodel.EntityID;
+import telecom.CoverageModel;
 import telecom.TelecomRegistry;
 import telecom.entities.BTS;
 
@@ -26,6 +27,8 @@ public final class AgentRelayHelper {
 
   /** Proximity threshold (mm) for spotting damaged BTS towers and voice handoffs. */
   public static final double PROXIMITY_RANGE_MM = 30000.0;
+
+  private static final CoverageModel COVERAGE_MODEL = new CoverageModel();
 
   private AgentRelayHelper() {}
 
@@ -103,15 +106,8 @@ public final class AgentRelayHelper {
       return sentVoiceThisTick;
     }
 
-    boolean inCellCoverage = false;
-    for (BTS bts : TelecomRegistry.getInstance().getAll()) {
-      if (bts.isServing() && bts.isXDefined() && bts.isYDefined()) {
-        if (Math.hypot(bts.getX() - me.getX(), bts.getY() - me.getY()) <= bts.getCoverageRadius()) {
-          inCellCoverage = true;
-          break;
-        }
-      }
-    }
+    boolean inCellCoverage = COVERAGE_MODEL.isCovered(
+        TelecomRegistry.getInstance().getAll(), me.getX(), me.getY());
 
     if (inCellCoverage && knowledge.getUnrelatedBufferCount() > 0) {
       List<AgentKnowledge.UnrelatedFact> all = knowledge.relayAndClearAll();
