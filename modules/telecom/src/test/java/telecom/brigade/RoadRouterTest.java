@@ -36,6 +36,7 @@ class RoadRouterTest {
 
   @Test
   void Given_NullWorldOrIds_When_FindUnblockedPath_Then_ReturnsNull() {
+    // --- Arrange / Act / Assert ---
     assertNull(RoadRouter.findUnblockedPath(null, new EntityID(1), new EntityID(2)));
     assertNull(RoadRouter.findUnblockedPath(world, null, new EntityID(2)));
     assertNull(RoadRouter.findUnblockedPath(world, new EntityID(1), null));

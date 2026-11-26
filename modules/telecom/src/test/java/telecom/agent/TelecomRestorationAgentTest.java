@@ -110,6 +110,7 @@ class TelecomRestorationAgentTest {
 
   @Test
   void Given_CivilianEntity_When_PostConnect_Then_InitializesAgentAndSubscribesToRadio() {
+    // --- Arrange ---
     EntityID agentId = new EntityID(100);
     EntityID roadId = new EntityID(1);
 
@@ -132,10 +133,10 @@ class TelecomRestorationAgentTest {
     assertEquals(StandardEntityURN.CIVILIAN, human.getStandardURN());
     assertTrue(agent.getRequestedEntityURNsEnum().contains(StandardEntityURN.CIVILIAN));
 
-    // Act
+    // --- Act ---
     agent.think(1, new ChangeSet(), Collections.emptyList());
 
-    // Assert
+    // --- Assert ---
     boolean subscribed = sentMessages.stream()
         .anyMatch(m -> m instanceof AKSubscribe);
     assertTrue(subscribed, "Restoration agent must subscribe to radio channel 1");
@@ -143,6 +144,7 @@ class TelecomRestorationAgentTest {
 
   @Test
   void Given_WorkOrderInRegistry_When_Think_Then_DispatchesMoveTowardsTarget() {
+    // --- Arrange ---
     EntityID agentId = new EntityID(100);
     EntityID r1Id = new EntityID(1);
     EntityID r2Id = new EntityID(2);
@@ -172,10 +174,10 @@ class TelecomRestorationAgentTest {
     TelecomRestorationAgent agent = new TelecomRestorationAgent();
     agent.postConnect(mockConnection, agentId, entities, config);
 
-    // Act
+    // --- Act ---
     agent.think(4, new ChangeSet(), Collections.emptyList());
 
-    // Assert
+    // --- Assert ---
     Message sent = sentMessages.stream()
         .filter(m -> m instanceof AKMove)
         .findFirst()
@@ -187,6 +189,7 @@ class TelecomRestorationAgentTest {
 
   @Test
   void Given_BlockadeOnNextRoad_When_Approaching_Then_HaltsAndEmitsEmergencyAlert() {
+    // --- Arrange ---
     EntityID agentId = new EntityID(100);
     EntityID r1Id = new EntityID(1);
     EntityID r2Id = new EntityID(2);
@@ -216,7 +219,7 @@ class TelecomRestorationAgentTest {
     TelecomRestorationAgent agent = new TelecomRestorationAgent();
     agent.postConnect(mockConnection, agentId, entities, config);
 
-    // Act
+    // --- Act ---
     agent.think(4, new ChangeSet(), Collections.emptyList());
 
     // --- Assert ---
@@ -232,6 +235,7 @@ class TelecomRestorationAgentTest {
 
   @Test
   void Given_DistantBlockadeOnRoute_When_Think_Then_AdvancesToApproachBlockadeBeforeHalting() {
+    // --- Arrange ---
     // r1 -> r2 (clear) -> r3 (blocked) -> r4 (target)
     EntityID agentId = new EntityID(100);
     EntityID r1Id = new EntityID(1);
@@ -275,9 +279,11 @@ class TelecomRestorationAgentTest {
     TelecomRestorationAgent agent = new TelecomRestorationAgent();
     agent.postConnect(mockConnection, agentId, entities, config);
 
-    // Act: Timestep 4 - agent should NOT stay frozen at home; it must advance safely to r2!
+    // --- Act ---
+    // Timestep 4 - agent should NOT stay frozen at home; it must advance safely to r2!
     agent.think(4, new ChangeSet(), Collections.emptyList());
 
+    // --- Assert ---
     Message sent = sentMessages.stream()
         .filter(m -> m instanceof AKMove)
         .findFirst()
@@ -289,6 +295,7 @@ class TelecomRestorationAgentTest {
 
   @Test
   void Given_OnSite_When_CountdownFinishes_Then_DeploysCowAndRestoresCoverage() {
+    // --- Arrange ---
     EntityID agentId = new EntityID(100);
     EntityID r1Id = new EntityID(1);
 
@@ -312,12 +319,13 @@ class TelecomRestorationAgentTest {
     TelecomRestorationAgent agent = new TelecomRestorationAgent();
     agent.postConnect(mockConnection, agentId, entities, config);
 
-    // Act: Timestep 4 acquires order and begins setup
+    // --- Act ---
+    // Timestep 4 acquires order and begins setup
     agent.think(4, new ChangeSet(), Collections.emptyList());
     // Timestep 5: with cow-setup-steps=1, order finishes on site
     agent.think(5, new ChangeSet(), Collections.emptyList());
 
-    // Assert: A COW must have been deployed into the registry
+    // --- Assert ---
     boolean cowDeployed = TelecomRegistry.getInstance().getAll().stream()
         .anyMatch(bts -> bts instanceof COW && bts.isServing());
     assertTrue(cowDeployed, "COW must be successfully deployed and serving coverage");
@@ -325,6 +333,7 @@ class TelecomRestorationAgentTest {
 
   @Test
   void Given_BlockadeCleared_When_Think_Then_ResumesMovement() {
+    // --- Arrange ---
     EntityID agentId = new EntityID(100);
     EntityID r1Id = new EntityID(1);
     EntityID r2Id = new EntityID(2);
@@ -354,12 +363,13 @@ class TelecomRestorationAgentTest {
     TelecomRestorationAgent agent = new TelecomRestorationAgent();
     agent.postConnect(mockConnection, agentId, entities, config);
 
-    // Act 1: Approaches blockade, halts and does NOT send AKMove into r2
+    // --- Act ---
+    // Approaches blockade, halts and does NOT send AKMove into r2
     agent.think(4, new ChangeSet(), Collections.emptyList());
     long moveCountBeforeClear = sentMessages.stream().filter(m -> m instanceof AKMove).count();
     assertEquals(0, moveCountBeforeClear, "Agent must not move into blocked road");
 
-    // Act 2: Police force clears road 2 and broadcasts CLR:2
+    // Police force clears road 2 and broadcasts CLR:2
     byte[] clearMsg = AgentComms.encodeCleared(r2Id);
     AKSpeak speak = new AKSpeak(new EntityID(555), 5, AgentComms.RADIO_CHANNEL, clearMsg);
     r2.setBlockades(Collections.emptyList());
@@ -369,7 +379,7 @@ class TelecomRestorationAgentTest {
 
     agent.think(5, changed, List.of(speak));
 
-    // Assert: Agent resumes movement towards r2
+    // --- Assert ---
     boolean resumedMove = sentMessages.stream()
         .filter(m -> m instanceof AKMove)
         .anyMatch(m -> ((AKMove) m).getPath().contains(r2Id));
@@ -378,6 +388,7 @@ class TelecomRestorationAgentTest {
 
   @Test
   void Given_DamagedBtsNearby_When_TraversingMap_Then_InitiatesOnSiteRepair() {
+    // --- Arrange ---
     EntityID agentId = new EntityID(100);
     EntityID r1Id = new EntityID(1);
     EntityID btsId = new EntityID(500);
@@ -405,15 +416,16 @@ class TelecomRestorationAgentTest {
     TelecomRestorationAgent agent = new TelecomRestorationAgent();
     agent.postConnect(mockConnection, agentId, entities, config);
 
-    // Act: Timestep 4 - agent has no pre-existing work order, but spots nearby damaged BTS
+    // --- Act ---
     agent.think(4, new ChangeSet(), Collections.emptyList());
 
-    // Assert: agent must begin on-site repair of the nearby BTS
+    // --- Assert ---
     assertNotNull(agent.toString(), "Agent must be alive");
   }
 
   @Test
   void Given_DamagedBtsReportedByOtherAgent_When_Heard_Then_RespondsAndAdvancesToRepair() {
+    // --- Arrange ---
     EntityID agentId = new EntityID(100);
     EntityID r1Id = new EntityID(1);
     EntityID r2Id = new EntityID(2);
@@ -452,10 +464,10 @@ class TelecomRestorationAgentTest {
     TelecomRestorationAgent agent = new TelecomRestorationAgent();
     agent.postConnect(mockConnection, agentId, entities, config);
 
-    // Act: Agent receives broadcast report
+    // --- Act ---
     agent.think(4, new ChangeSet(), List.of(speak));
 
-    // Assert: Agent responds to the report and dispatches AKMove towards r2
+    // --- Assert ---
     boolean movesToReportedBts = sentMessages.stream()
         .filter(m -> m instanceof AKMove)
         .anyMatch(m -> ((AKMove) m).getPath().contains(r2Id));
@@ -464,6 +476,7 @@ class TelecomRestorationAgentTest {
 
   @Test
   void Given_AnotherAgentClaimedBts_When_Think_Then_IgnoresClaimedBtsAndContinuesPatrol() {
+    // --- Arrange ---
     EntityID agentId = new EntityID(100);
     EntityID otherAgentId = new EntityID(101);
     EntityID r1Id = new EntityID(1);
@@ -505,10 +518,10 @@ class TelecomRestorationAgentTest {
     TelecomRestorationAgent agent = new TelecomRestorationAgent();
     agent.postConnect(mockConnection, agentId, entities, config);
 
-    // Act
+    // --- Act ---
     agent.think(4, new ChangeSet(), List.of(speakBts, speakClaim));
 
-    // Assert: agent must NOT emit a claim for this BTS
+    // --- Assert ---
     boolean claimedByMe = sentMessages.stream()
         .filter(m -> m instanceof AKSpeak)
         .map(m -> (AKSpeak) m)

@@ -59,6 +59,18 @@ public class TelecomCommsPanel extends JPanel {
     private final String category;
     private final Set<Integer> referencedIds;
 
+    /**
+     * Construct an immutable communications log entry.
+     *
+     * @param timestep Simulation timestep.
+     * @param channel Channel name (e.g. Radio, Voice).
+     * @param senderId Sender agent entity ID.
+     * @param senderDesc Formatted sender description.
+     * @param decodedMessage Human-readable decoded message.
+     * @param rawMessage Raw message string.
+     * @param category Message category for filtering.
+     * @param referencedIds Entity IDs referenced in the message.
+     */
     public CommsEntry(int timestep, String channel, EntityID senderId, String senderDesc,
         String decodedMessage, String rawMessage, String category, Set<Integer> referencedIds) {
       this.timestep = timestep;
@@ -73,13 +85,21 @@ public class TelecomCommsPanel extends JPanel {
           : Collections.emptySet();
     }
 
+    /** @return Simulation timestep. */
     public int getTimestep() { return timestep; }
+    /** @return Channel label (Radio, Voice, or Ch N). */
     public String getChannel() { return channel; }
+    /** @return Sender entity ID. */
     public EntityID getSenderId() { return senderId; }
+    /** @return Human-readable sender description. */
     public String getSenderDesc() { return senderDesc; }
+    /** @return Human-readable decoded message text. */
     public String getDecodedMessage() { return decodedMessage; }
+    /** @return Raw encoded message payload. */
     public String getRawMessage() { return rawMessage; }
+    /** @return Message category label. */
     public String getCategory() { return category; }
+    /** @return Unmodifiable set of referenced entity IDs. */
     public Set<Integer> getReferencedIds() { return referencedIds; }
   }
 
@@ -96,6 +116,7 @@ public class TelecomCommsPanel extends JPanel {
   private Consumer<EntityID> entitySelectListener;
   private EntityID highlightedAgent = null;
 
+  /** Construct the searchable communications feed panel. */
   public TelecomCommsPanel() {
     super(new BorderLayout());
     setPreferredSize(new Dimension(360, 260));
@@ -282,15 +303,26 @@ public class TelecomCommsPanel extends JPanel {
     add(scrollPane, BorderLayout.CENTER);
   }
 
+  /**
+   * Register a callback invoked when a user selects a row's sender in the feed.
+   *
+   * @param listener Callback receiving the selected sender's entity ID.
+   */
   public void setEntitySelectListener(Consumer<EntityID> listener) {
     this.entitySelectListener = listener;
   }
 
+  /**
+   * Highlight messages sent by the given agent ID in the table.
+   *
+   * @param id Agent entity ID to highlight, or null to clear.
+   */
   public void highlightAgent(EntityID id) {
     this.highlightedAgent = id;
     table.repaint();
   }
 
+  /** Clear all captured communication entries from the feed. */
   public void clearEntries() {
     allEntries.clear();
     displayedEntries.clear();
@@ -342,26 +374,43 @@ public class TelecomCommsPanel extends JPanel {
     }
   }
 
+  /**
+   * Set the ID filter text field (supports {@code #123} or {@code 123}).
+   *
+   * @param idText Entity ID filter string, or null/empty to clear.
+   */
   public void setIdFilter(String idText) {
     if (idField != null) {
       idField.setText(idText != null ? idText : "");
     }
   }
 
+  /**
+   * Set the ID filter to a specific numeric entity ID.
+   *
+   * @param id Entity ID integer value.
+   */
   public void setIdFilter(int id) {
     setIdFilter(String.valueOf(id));
   }
 
+  /** @return Current entity ID filter text. */
   public String getIdFilter() {
     return (idField != null) ? idField.getText() : "";
   }
 
+  /**
+   * Set the free-text search filter query.
+   *
+   * @param text Search text, or null/empty to clear.
+   */
   public void setSearchText(String text) {
     if (searchField != null) {
       searchField.setText(text != null ? text : "");
     }
   }
 
+  /** @return Current free-text search query. */
   public String getSearchText() {
     return (searchField != null) ? searchField.getText() : "";
   }

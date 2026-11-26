@@ -16,10 +16,15 @@ public class AgentKnowledge {
   /** Strict memory limit for unrelated facts to ensure memory efficiency. */
   public static final int MAX_UNRELATED_CAPACITY = 8;
 
+  /** Categories of cross-discipline facts buffered for delay-tolerant relay. */
   public enum FactType {
+    /** Outage of a cellular BTS tower (for Restoration Agents). */
     BTS_OUTAGE("BTS Outage", "Telecom Restoration Agent"),
+    /** Burning building (for Fire Brigades). */
     FIRE("Active Fire", "Fire Brigade"),
+    /** Blocked road (for Police Forces). */
     BLOCKADE("Road Blockade", "Police Force"),
+    /** Injured or buried civilian (for Ambulance Teams). */
     CIVILIAN("Injured Civilian", "Ambulance Team");
 
     private final String label;
@@ -143,14 +148,25 @@ public class AgentKnowledge {
     return currentStatus;
   }
 
+  /**
+   * Update the agent's current live status string.
+   *
+   * @param status Live status text (defaults to {@code "Standby / Idle"} if null/empty).
+   */
   public synchronized void setStatus(String status) {
     this.currentStatus = (status != null && !status.isEmpty()) ? status : "Standby / Idle";
   }
 
+  /** @return Copy of the agent's core mission knowledge entries. */
   public synchronized List<String> getCoreKnowledge() {
     return new ArrayList<>(coreKnowledge);
   }
 
+  /**
+   * Replace the agent's core mission knowledge entries.
+   *
+   * @param items New mission knowledge lines.
+   */
   public synchronized void setCoreKnowledge(List<String> items) {
     coreKnowledge.clear();
     if (items != null) {
@@ -191,10 +207,12 @@ public class AgentKnowledge {
     return true;
   }
 
+  /** @return Copy of the bounded unrelated-fact relay buffer. */
   public synchronized List<UnrelatedFact> getUnrelatedBuffer() {
     return new ArrayList<>(unrelatedBuffer);
   }
 
+  /** @return Number of items currently held in the relay buffer. */
   public synchronized int getUnrelatedBufferCount() {
     return unrelatedBuffer.size();
   }

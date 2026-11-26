@@ -96,6 +96,7 @@ class TelecomCentreTest {
 
   @Test
   void Given_EarlyTimestep_When_Think_Then_SubscribesToRadio() {
+    // --- Arrange ---
     EntityID centreId = new EntityID(500);
     PoliceOffice office = new PoliceOffice(centreId);
     office.setX(100);
@@ -105,8 +106,10 @@ class TelecomCentreTest {
     TelecomCentre centre = new TelecomCentre();
     centre.postConnect(mockConnection, centreId, List.of(office), config);
 
+    // --- Act ---
     centre.think(1, new ChangeSet(), Collections.emptyList());
 
+    // --- Assert ---
     boolean subscribed = sentMessages.stream()
         .anyMatch(m -> m instanceof AKSubscribe);
     assertTrue(subscribed, "Centre must subscribe to radio channel 1");
