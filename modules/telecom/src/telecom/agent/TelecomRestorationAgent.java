@@ -296,11 +296,7 @@ public class TelecomRestorationAgent extends StandardAgent<Civilian> {
         remainingSteps--;
         int percent = totalDuration > 0
             ? (int) (((totalDuration - Math.max(0, remainingSteps)) / (double) totalDuration) * 100) : 0;
-        String actionStr = (currentOrder.getKind() == WorkOrder.Kind.COW_DEPLOY)
-            ? "Deploying COW (" + percent + "% done)"
-            : (currentOrder.getKind() == WorkOrder.Kind.REFUEL)
-                ? "Refueling BTS (" + percent + "% done)"
-                : "Repairing BTS (" + percent + "% done)";
+        String actionStr = formatOrderStatus(currentOrder.getKind(), percent);
         if (knowledge != null) {
           knowledge.setStatus(actionStr);
           TelecomRegistry.getInstance().updateAgentKnowledge(knowledge);
@@ -576,14 +572,38 @@ public class TelecomRestorationAgent extends StandardAgent<Civilian> {
     return false;
   }
 
+  private String formatOrderStatus(WorkOrder.Kind kind, int percent) {
+    switch (kind) {
+      case COW_DEPLOY:
+        return "Deploying COW (" + percent + "% done)";
+      case REFUEL:
+        return "Refueling BTS (" + percent + "% done)";
+      case REPAIR:
+      default:
+        return "Repairing BTS (" + percent + "% done)";
+    }
+  }
+
+  private boolean hasRemainingCowStock() {
+    int maxStock = config != null ? config.getIntValue("telecom.brigade.cow-stock", 4) : 4;
+    long deployedCount = TelecomRegistry.getInstance().getAll().stream()
+        .filter(b -> b instanceof COW)
+        .count();
+    return deployedCount < maxStock;
+  }
+
   private BTS findNearbyDamagedBts(double maxDist) {
     Civilian me = me();
     if (me == null || !me.isXDefined() || !me.isYDefined()) {
       return null;
     }
+    boolean canDeployCow = hasRemainingCowStock();
     int mx = me.getX();
     int my = me.getY();
     for (BTS bts : TelecomRegistry.getInstance().getAll()) {
+      if (bts.getState() == BTS.State.DESTROYED && !canDeployCow) {
+        continue;
+      }
       Pair<Integer, Integer> loc = bts.getLocation(null);
       if (loc != null) {
         double d = Math.hypot(loc.first() - mx, loc.second() - my);
@@ -604,11 +624,15 @@ public class TelecomRestorationAgent extends StandardAgent<Civilian> {
     if (me == null || !me.isXDefined() || !me.isYDefined() || knownDamagedBts.isEmpty()) {
       return null;
     }
+    boolean canDeployCow = hasRemainingCowStock();
     int mx = me.getX();
     int my = me.getY();
     AgentComms.BtsReport best = null;
     double bestDist = Double.MAX_VALUE;
     for (AgentComms.BtsReport report : knownDamagedBts.values()) {
+      if (report.getState() == BTS.State.DESTROYED.getCode() && !canDeployCow) {
+        continue;
+      }
       if (!isBtsClaimedOrBeingRepaired(report.getBtsId(), report.getX(), report.getY())) {
         double d = Math.hypot(report.getX() - mx, report.getY() - my);
         if (d < bestDist) {

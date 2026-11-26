@@ -194,6 +194,7 @@ class TelecomFireBrigadeTest {
 
   @Test
   void Given_EmptyWaterTankAtRefuge_When_Think_Then_RestsToRefill() {
+    // --- Arrange ---
     EntityID refugeId = new EntityID(50);
     EntityID fbId = new EntityID(10);
 
@@ -214,10 +215,10 @@ class TelecomFireBrigadeTest {
     TelecomFireBrigade agent = new TelecomFireBrigade();
     agent.postConnect(mockConnection, fbId, entities, config);
 
-    // Act
+    // --- Act ---
     agent.think(4, new ChangeSet(), Collections.emptyList());
 
-    // Assert: must rest at refuge to refill water
+    // --- Assert ---
     assertFalse(sentMessages.isEmpty());
     Message cmd = sentMessages.stream()
         .filter(m -> m instanceof AKRest)

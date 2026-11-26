@@ -151,6 +151,7 @@ class TelecomPoliceForceTest {
 
   @Test
   void Given_BlockadeOnCurrentRoadBeyondClearDistance_When_Think_Then_MovesTowardsBlockadeSafely() {
+    // --- Arrange ---
     EntityID roadId = new EntityID(10);
     EntityID policeId = new EntityID(20);
     EntityID blockadeId = new EntityID(30);
@@ -179,10 +180,10 @@ class TelecomPoliceForceTest {
     TelecomPoliceForce agent = new TelecomPoliceForce();
     agent.postConnect(mockConnection, policeId, entities, config);
 
-    // Act
+    // --- Act ---
     agent.think(4, new ChangeSet(), Collections.emptyList());
 
-    // Assert: agent must move towards blockade without entering it
+    // --- Assert ---
     assertFalse(sentMessages.isEmpty());
     Message sent = sentMessages.stream()
         .filter(m -> m instanceof AKMove)
@@ -313,6 +314,7 @@ class TelecomPoliceForceTest {
 
   @Test
   void Given_CivilianAndFireObserved_When_Think_Then_BroadcastsAlertsAcrossChannels() {
+    // --- Arrange ---
     EntityID r1Id = new EntityID(1);
     EntityID policeId = new EntityID(100);
     EntityID civId = new EntityID(50);
@@ -365,6 +367,7 @@ class TelecomPoliceForceTest {
 
   @Test
   void Given_DamagedBtsObserved_When_Think_Then_BroadcastsBtsDiscovered() {
+    // --- Arrange ---
     EntityID r1Id = new EntityID(1);
     EntityID policeId = new EntityID(100);
     EntityID btsId = new EntityID(555);
@@ -392,10 +395,10 @@ class TelecomPoliceForceTest {
     TelecomPoliceForce agent = new TelecomPoliceForce();
     agent.postConnect(mockConnection, policeId, entities, config);
 
-    // Act
+    // --- Act ---
     agent.think(4, new ChangeSet(), Collections.emptyList());
 
-    // Assert: must broadcast BTS report
+    // --- Assert ---
     boolean sentBtsReport = sentMessages.stream()
         .filter(m -> m instanceof AKSpeak)
         .map(m -> (AKSpeak) m)

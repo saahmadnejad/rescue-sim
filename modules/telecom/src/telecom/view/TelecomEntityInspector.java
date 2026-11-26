@@ -47,6 +47,7 @@ public class TelecomEntityInspector extends JTable {
 
   private final EntityTableModel model;
 
+  /** Construct a new entity inspector table with default column widths. */
   public TelecomEntityInspector() {
     model = new EntityTableModel();
     setModel(model);
@@ -132,6 +133,12 @@ public class TelecomEntityInspector extends JTable {
     return name;
   }
 
+  /**
+   * Format an entity property URN into a human-readable label.
+   *
+   * @param prop The property to format.
+   * @return Human-readable property label.
+   */
   public static String formatHumanReadableProperty(Property prop) {
     if (prop == null) {
       return "";
@@ -167,6 +174,13 @@ public class TelecomEntityInspector extends JTable {
     return String.valueOf(urn);
   }
 
+  /**
+   * Format a property's value for display, decoding telecom enums and fire states.
+   *
+   * @param e The owning entity.
+   * @param prop The property whose value should be formatted.
+   * @return Formatted display value.
+   */
   public static Object formatPropertyValue(Entity e, Property prop) {
     if (prop == null || !prop.isDefined()) {
       return "Undefined";
@@ -220,6 +234,11 @@ public class TelecomEntityInspector extends JTable {
       props = new ArrayList<Property>();
     }
 
+    /**
+     * Set the entity displayed by this table model.
+     *
+     * @param entity Entity to inspect, or null to clear.
+     */
     public void setEntity(Entity entity) {
       e = entity;
       props.clear();
