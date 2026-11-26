@@ -515,4 +515,46 @@ class TelecomRestorationAgentTest {
         .anyMatch(s -> new String(s.getContent(), StandardCharsets.UTF_8).startsWith(AgentComms.PREFIX_CLAIM_BTS + "600"));
     assertFalse(claimedByMe, "Agent must not claim or target a BTS that another agent is already repairing");
   }
+
+  @Test
+  void Given_CowStockExhausted_When_DeployCowFinishes_Then_DoesNotBroadcastBtsRestored() {
+    // --- Arrange ---
+    EntityID r1Id = new EntityID(1);
+    EntityID agentId = new EntityID(100);
+    EntityID btsId = new EntityID(601);
+
+    Road r1 = new Road(r1Id);
+    r1.setX(100);
+    r1.setY(100);
+    r1.setEdges(new ArrayList<>());
+
+    Civilian human = new Civilian(agentId);
+    human.setX(100);
+    human.setY(100);
+    human.setPosition(r1Id);
+    human.setHP(10000);
+    human.setBuriedness(0);
+
+    BTS destroyed = new BTS(btsId);
+    destroyed.setX(100);
+    destroyed.setY(100);
+    destroyed.setState(BTS.State.DESTROYED);
+    TelecomRegistry.getInstance().register(destroyed);
+
+    config.setIntValue("telecom.brigade.cow-stock", 0);
+    config.setIntValue("telecom.brigade.cow-setup-steps", 1);
+
+    TelecomRestorationAgent agent = new TelecomRestorationAgent();
+    agent.postConnect(mockConnection, agentId, List.of(r1, human), config);
+
+    // --- Act ---
+    agent.think(4, new ChangeSet(), Collections.emptyList());
+
+    // --- Assert ---
+    boolean sentRestored = sentMessages.stream()
+        .filter(m -> m instanceof AKSpeak)
+        .map(m -> (AKSpeak) m)
+        .anyMatch(s -> new String(s.getContent(), StandardCharsets.UTF_8).startsWith(AgentComms.PREFIX_BTS_RESTORED));
+    assertFalse(sentRestored, "Must NOT broadcast BTS_RESTORED when cow-stock is exhausted");
+  }
 }

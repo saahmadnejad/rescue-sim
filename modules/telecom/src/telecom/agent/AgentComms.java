@@ -85,6 +85,14 @@ public final class AgentComms {
     private final int hp;
     private final int buriedness;
 
+    /**
+     * Construct a civilian report.
+     *
+     * @param civilianId Civilian entity ID.
+     * @param locationId Area entity ID where the civilian is located.
+     * @param hp Civilian HP.
+     * @param buriedness Civilian buriedness.
+     */
     public CivilianReport(EntityID civilianId, EntityID locationId, int hp, int buriedness) {
       this.civilianId = civilianId;
       this.locationId = locationId;
@@ -92,18 +100,22 @@ public final class AgentComms {
       this.buriedness = buriedness;
     }
 
+    /** @return Civilian entity ID. */
     public EntityID getCivilianId() {
       return civilianId;
     }
 
+    /** @return Area entity ID where the civilian is located. */
     public EntityID getLocationId() {
       return locationId;
     }
 
+    /** @return Civilian HP. */
     public int getHP() {
       return hp;
     }
 
+    /** @return Civilian buriedness level. */
     public int getBuriedness() {
       return buriedness;
     }
@@ -116,15 +128,23 @@ public final class AgentComms {
     private final EntityID buildingId;
     private final int fieryness;
 
+    /**
+     * Construct a fire report.
+     *
+     * @param buildingId Burning building entity ID.
+     * @param fieryness Building fieryness level.
+     */
     public FireReport(EntityID buildingId, int fieryness) {
       this.buildingId = buildingId;
       this.fieryness = fieryness;
     }
 
+    /** @return Burning building entity ID. */
     public EntityID getBuildingId() {
       return buildingId;
     }
 
+    /** @return Building fieryness level. */
     public int getFieryness() {
       return fieryness;
     }
@@ -137,15 +157,23 @@ public final class AgentComms {
     private final EntityID roadId;
     private final EntityID btsId;
 
+    /**
+     * Construct a restoration blockage alert.
+     *
+     * @param roadId Blocked road entity ID.
+     * @param btsId Target BTS/area entity ID (may be null).
+     */
     public RestoreBlockedReport(EntityID roadId, EntityID btsId) {
       this.roadId = roadId;
       this.btsId = btsId;
     }
 
+    /** @return Blocked road entity ID. */
     public EntityID getRoadId() {
       return roadId;
     }
 
+    /** @return Target BTS/area entity ID (may be null). */
     public EntityID getBtsId() {
       return btsId;
     }
@@ -158,15 +186,23 @@ public final class AgentComms {
     private final EntityID targetId;
     private final EntityID agentId;
 
+    /**
+     * Construct a task claim report.
+     *
+     * @param targetId Claimed target entity ID.
+     * @param agentId Claiming agent entity ID.
+     */
     public ClaimReport(EntityID targetId, EntityID agentId) {
       this.targetId = targetId;
       this.agentId = agentId;
     }
 
+    /** @return Claimed target entity ID. */
     public EntityID getTargetId() {
       return targetId;
     }
 
+    /** @return Claiming agent entity ID. */
     public EntityID getAgentId() {
       return agentId;
     }
