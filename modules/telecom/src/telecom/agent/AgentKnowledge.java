@@ -30,15 +30,20 @@ public class AgentKnowledge {
       this.relevantRole = relevantRole;
     }
 
+    /** @return Human-readable fact category label. */
     public String getLabel() {
       return label;
     }
 
+    /** @return Target agent role responsible for handling this fact. */
     public String getRelevantRole() {
       return relevantRole;
     }
   }
 
+  /**
+   * A single cross-discipline fact buffered for delay-tolerant handoff.
+   */
   public static class UnrelatedFact {
     private final FactType type;
     private final EntityID targetId;
@@ -46,6 +51,15 @@ public class AgentKnowledge {
     private final int timestamp;
     private final byte[] rawData;
 
+    /**
+     * Construct a buffered unrelated fact.
+     *
+     * @param type Fact category.
+     * @param targetId Target entity ID.
+     * @param summary Human-readable summary.
+     * @param timestamp Simulation timestep observed.
+     * @param rawData Encoded {@link AgentComms} payload.
+     */
     public UnrelatedFact(FactType type, EntityID targetId, String summary, int timestamp, byte[] rawData) {
       this.type = type;
       this.targetId = targetId;
@@ -54,22 +68,27 @@ public class AgentKnowledge {
       this.rawData = rawData;
     }
 
+    /** @return Fact category. */
     public FactType getType() {
       return type;
     }
 
+    /** @return Target entity ID. */
     public EntityID getTargetId() {
       return targetId;
     }
 
+    /** @return Human-readable summary. */
     public String getSummary() {
       return summary;
     }
 
+    /** @return Simulation timestep when observed. */
     public int getTimestamp() {
       return timestamp;
     }
 
+    /** @return Encoded {@link AgentComms} payload bytes. */
     public byte[] getRawData() {
       return rawData;
     }
@@ -98,19 +117,28 @@ public class AgentKnowledge {
   private final List<String> coreKnowledge = new ArrayList<>();
   private final List<UnrelatedFact> unrelatedBuffer = new ArrayList<>();
 
+  /**
+   * Construct a knowledge store for an agent.
+   *
+   * @param agentId Owning agent entity ID.
+   * @param roleName Human-readable role name.
+   */
   public AgentKnowledge(EntityID agentId, String roleName) {
     this.agentId = agentId;
     this.roleName = roleName;
   }
 
+  /** @return Owning agent entity ID. */
   public EntityID getAgentId() {
     return agentId;
   }
 
+  /** @return Human-readable role name. */
   public String getRoleName() {
     return roleName;
   }
 
+  /** @return Current live status string. */
   public synchronized String getStatus() {
     return currentStatus;
   }

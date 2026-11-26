@@ -296,6 +296,6 @@ public final class AgentRelayHelper {
         return candId;
       }
     }
-    return roads.get(rand.nextInt(roads.size())).getID();
+    return null;
   }
 }
