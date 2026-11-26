@@ -4,6 +4,10 @@ on:
   push:
     paths:
       - 'docs/**'
+      - '.github/workflows/main.yml'
+
+permissions:
+  contents: write
 
 jobs:
   build:
