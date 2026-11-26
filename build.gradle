@@ -1,3 +1,6 @@
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
 plugins {
   id 'java'
   id 'maven-publish'
@@ -64,6 +67,7 @@ sourceSets {
                   'modules/collapse/src',
                   'modules/gis2/src',
                   'modules/ignition/src',
+                  'modules/launcher/src',
                   'modules/maps/src',
                   'modules/sample/src',
                   'modules/telecom/src',
@@ -217,6 +221,17 @@ task kernelJar(type: Jar) {
   }
   destinationDirectory = file('jars')
   archiveFileName = 'kernel.jar'
+}
+
+task launcherJar(type: Jar, dependsOn: classes) {
+  from(sourceSets.main.output) {
+    include 'rcrs/server/launcher/**'
+  }
+  destinationDirectory = file('jars')
+  archiveFileName = 'rcrs-server-launcher.jar'
+  manifest {
+    attributes('Main-Class': 'rcrs.server.launcher.RCRSLauncher')
+  }
 }
 
 task mapsSourceJar(type: Jar, dependsOn: classes) {
@@ -386,7 +401,7 @@ task sourcesJar(type: GradleBuild) {
 /* Perform a complete build of the simulator */
 task completeBuild(type: GradleBuild) {
   tasks = [ 'clean', 'clearJar', 'collapseJar', 'gis2Jar', 'ignitionJar',
-            'kernelJar', 'mapsJar', 'miscJar', 'rescuecore2Jar', 'resqFireJar',
+            'kernelJar', 'launcherJar', 'mapsJar', 'miscJar', 'rescuecore2Jar', 'resqFireJar',
             'sampleJar', 'standardJar', 'telecomJar', 'traffic3Jar', 'sourcesJar',
             'exportLibs'
           ]
@@ -436,4 +451,32 @@ task osm2gml(type: JavaExec) {
   mainClass = 'maps.convert.Convert'
   maxHeapSize = '2048m'
   jvmArgs '-Dlog4j.log.dir=logs/log'
+  doFirst {
+    // Give each run its own log file. This is evaluated at execution time
+    // so that the timestamp is never reused from a cached configuration.
+    systemProperty 'osm2gml.run.id',
+            LocalDateTime.now().format(DateTimeFormatter.ofPattern('yyyyMMdd-HHmmss'))
+  }
+}
+
+/* Validate a GML map */
+tasks.register('validateMap', JavaExec) {
+  classpath = files('.')
+  classpath += sourceSets.main.runtimeClasspath
+  mainClass = 'maps.validate.GMLMapValidator'
+  maxHeapSize = '2048m'
+  jvmArgs '-Dlog4j.log.dir=logs/log'
+  doFirst {
+    // Give each run its own log file. This is evaluated at execution time
+    // so that the timestamp is never reused from a cached configuration.
+    systemProperty 'validate.run.id',
+            LocalDateTime.now().format(DateTimeFormatter.ofPattern('yyyyMMdd-HHmmss'))
+  }
+  // Exit status 1 means that errors were found, which is a valid result
+  setIgnoreExitValue(true)
+  doLast {
+    if (executionResult.get().exitValue == 2) {
+       throw new GradleException('Failed to validate the map')
+    }
+  }
 }

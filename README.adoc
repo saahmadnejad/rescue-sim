@@ -29,7 +29,33 @@ $ ./gradlew completeBuild
 
 === Execute the Rescue Simulation Server
 
-Open a terminal window, navigate to the ```rcrs-server``` root directory and execute
+The cross-platform Java launcher does not require Bash. Open a terminal window,
+navigate to the ```rcrs-server``` root directory and execute one of the following:
+
+```bash
+
+$ java -jar jars/rcrs-server-launcher.jar precompute
+
+$ java -jar jars/rcrs-server-launcher.jar comprun
+```
+
+The launcher accepts the same map, config, log, team, GUI, and JLog options as
+the shell scripts. Each process heap limit can be overridden by repeating the
+`--memory <name>=<size>` option. For example:
+
+```bash
+
+$ java -jar jars/rcrs-server-launcher.jar comprun --memory kernel=4g --memory traffic=2g
+```
+
+Run the following command to see all options and supported process names:
+
+```bash
+
+$ java -jar jars/rcrs-server-launcher.jar --help
+```
+
+The Bash launcher remains available on systems that support it:
 
 ```bash
 
@@ -114,6 +140,29 @@ The ```<osm map path>``` is the path to the OSM map file and the ```<gml map pat
 ```
 ./gradlew osm2gml --args="'/home/user/newmap.osm' '/home/user/newmap.gml'"
 ```
+
+=== `validateMap`
+
+Open a terminal window, navigate to the ```rcrs-server``` root directory and execute
+
+----
+$ ./gradlew validateMap --args="'<gml map path>'"
+----
+
+The ```<gml map path>``` is the path to the GML map file to validate. The result is written to the log, one ```VALIDATION_ERROR``` line per error followed by a ```VALIDATION_SAMMARY``` line.
+
+----
+VALIDATION_ERROR map=<gml map path> kind=<error kind> id=<object id> message=<message>
+VALIDATION_SUMMARY map=<gml map path> errors=<number of errors>
+----
+
+The ```VALIDATION_SUMMARY``` line is written only when the validation is completed, and ```errors=0``` means that no errors were found. The task failes only if the map could not be validated, for example when the file cannot be read.
+
+==== Example
+
+----
+./gradlew validateMap --args="'maps/test/map/map.gml'"
+----
 
 == Known Problems
 
